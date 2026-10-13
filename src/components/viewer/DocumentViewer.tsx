@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   AnnotationTool,
   DocumentWithProgress,
@@ -9,6 +9,8 @@ import {
 } from '@/types/syllabi';
 import { DocumentStatus } from '@/types/database';
 import { AnnotationCanvas } from '@/components/annotation/AnnotationCanvas';
+import { PdfViewerCanvas } from '@/components/viewer/PdfViewerCanvas';
+import { ThemeToggle } from '@/components/theme/ThemeProvider';
 import { STATUS_CONFIG, SUBJECT_METADATA } from '@/lib/utils';
 import {
   ChevronLeft,
@@ -21,14 +23,16 @@ import {
   Eraser,
   MessageSquare,
   Bookmark as BookmarkIcon,
-  Layers,
   ArrowLeft,
   CheckCircle2,
   Clock,
   AlertCircle,
   HelpCircle,
   Share2,
-  Download,
+  MousePointer,
+  Touchpad,
+  Palette,
+  Check,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -39,6 +43,15 @@ interface DocumentViewerProps {
   onAddBookmark?: (pageNumber: number, title: string) => void;
 }
 
+const PALETTE_COLORS = [
+  { name: 'White', value: '#ffffff' },
+  { name: 'Yellow', value: '#fde047' },
+  { name: 'Cyan', value: '#38bdf8' },
+  { name: 'Emerald', value: '#4ade80' },
+  { name: 'Coral', value: '#f87171' },
+  { name: 'Purple', value: '#c084fc' },
+];
+
 export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   document: doc,
   roomId,
@@ -46,9 +59,14 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   onAddBookmark,
 }) => {
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(doc.totalPages || 1);
   const [zoomScale, setZoomScale] = useState<number>(1.0);
-  const [activeTool, setActiveTool] = useState<AnnotationTool>('pen');
+  const [activeTool, setActiveTool] = useState<AnnotationTool>('select');
+  const [activeColor, setActiveColor] = useState<string>('#fde047');
+  const [isTouchMode, setIsTouchMode] = useState<boolean>(false);
   const [isSharedLayer, setIsSharedLayer] = useState<boolean>(true);
+  const [showColorPicker, setShowColorPicker] = useState<boolean>(false);
+
   const [status, setStatus] = useState<DocumentStatus>(
     doc.userProgress?.status || 'IN_PROGRESS'
   );
@@ -120,13 +138,13 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             </div>
             {doc.syllabusTopic && (
               <span className="text-[11px] text-white/40 truncate max-w-md">
-                Topic: {doc.syllabusTopic}
+                {doc.syllabusTopic}
               </span>
             )}
           </div>
         </div>
 
-        {/* STATUS CHECKLIST PILL SELECTOR */}
+        {/* STATUS CHECKLIST & THEME TOGGLE */}
         <div className="flex items-center gap-3">
           <div className="relative flex items-center bg-interactive border border-white/15 rounded-2xl p-1">
             {(
@@ -150,7 +168,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
-                  <span>{st.label}</span>
+                  <span className="hidden sm:inline">{st.label}</span>
                 </button>
               );
             })}
@@ -167,10 +185,13 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             title="Toggle shared peer annotation layer"
           >
             <Share2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">
-              {isSharedLayer ? 'Shared Layer' : 'Private Layer'}
+            <span className="hidden md:inline">
+              {isSharedLayer ? 'Shared Layer' : 'Private'}
             </span>
           </button>
+
+          {/* THEME TOGGLE */}
+          <ThemeToggle />
         </div>
       </header>
 
@@ -185,110 +206,68 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           }}
           className="relative w-full max-w-4xl aspect-[1/1.414] bg-surface rounded-2xl border border-white/15 shadow-ios overflow-hidden"
         >
-          {/* BASE DEPTH (z-0): IMMUTABLE DOCUMENT BASE RENDERING */}
-          {doc.fileUrl ? (
-            <div className="absolute inset-0 z-0 bg-[#080808] flex items-center justify-center overflow-hidden">
-              <object
-                data={`${doc.fileUrl}#page=${currentPage}&toolbar=0&navpanes=0`}
-                type="application/pdf"
-                className="w-full h-full border-0 pointer-events-none select-none"
-              >
-                {/* Fallback if browser PDF viewer plugin is disabled */}
-                <div className="w-full h-full p-8 md:p-14 flex flex-col justify-between bg-gradient-to-b from-[#0c0c0c] to-[#070707] text-white/90">
-                  <div className="border-b border-white/10 pb-4 flex items-center justify-between">
-                    <div>
-                      <div className="text-[11px] font-mono tracking-widest text-white/40 uppercase">
-                        DEPARTMENT OF COMPUTER SCIENCE & ENGINEERING
-                      </div>
-                      <div className="text-lg font-bold tracking-tight text-white mt-1">
-                        {subjectInfo.name} ({doc.subject})
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs font-mono text-white/50 border border-white/10 px-2 py-0.5 rounded">
-                        UNIT {doc.unit}
-                      </span>
-                      <div className="text-[10px] text-white/30 mt-1 font-mono">
-                        PAGE {currentPage} OF {doc.totalPages}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="my-auto space-y-4 text-center">
-                    <h2 className="text-base font-semibold text-white">
-                      {doc.title} — Section {doc.unit}.{currentPage}
-                    </h2>
-                    <p className="text-xs text-white/50 max-w-md mx-auto">
-                      {doc.syllabusTopic || 'Core Syllabus Foundations & Examination Targets'}
-                    </p>
-                  </div>
-                  <div className="border-t border-white/10 pt-3 text-[10px] text-white/30 font-mono text-center">
-                    SYLLABI OS • IMMUTABLE BASE LAYER (Z-0)
-                  </div>
-                </div>
-              </object>
-            </div>
-          ) : (
-            <div className="absolute inset-0 z-0 p-8 md:p-14 flex flex-col justify-between bg-gradient-to-b from-[#0c0c0c] to-[#070707] text-white/90 select-none pointer-events-none">
-              {/* Header of syllabus page */}
-              <div className="border-b border-white/10 pb-4 flex items-center justify-between">
-                <div>
-                  <div className="text-[11px] font-mono tracking-widest text-white/40 uppercase">
-                    DEPARTMENT OF COMPUTER SCIENCE & ENGINEERING
-                  </div>
-                  <div className="text-lg font-bold tracking-tight text-white mt-1">
-                    {subjectInfo.name} ({doc.subject})
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className="text-xs font-mono text-white/50 border border-white/10 px-2 py-0.5 rounded">
-                    UNIT {doc.unit}
-                  </span>
-                  <div className="text-[10px] text-white/30 mt-1 font-mono">
-                    PAGE {currentPage} OF {doc.totalPages}
-                  </div>
-                </div>
-              </div>
+          {/* BASE DEPTH (z-0): REAL HIGH-RES PDF VIEWER CANVAS */}
+          <div className="absolute inset-0 z-0 bg-white dark:bg-[#080808] overflow-hidden select-none">
+            <PdfViewerCanvas
+              docId={doc.id}
+              fileUrl={doc.fileUrl}
+              currentPage={currentPage}
+              zoomScale={zoomScale}
+              onPagesDetected={(detected) => {
+                if (detected > 0 && detected !== totalPages) {
+                  setTotalPages(detected);
+                }
+              }}
+            />
 
-              {/* High-Res Syllabus Document Body */}
-              <div className="my-auto space-y-6 text-xs md:text-sm leading-relaxed text-white/80">
-                <div className="space-y-2">
-                  <h2 className="text-base font-semibold text-white tracking-tight">
-                    Section {doc.unit}.{currentPage}: {doc.syllabusTopic || 'Core Theoretical Foundations'}
+            {/* Fallback structured syllabus page if no binary is loaded */}
+            {!doc.fileUrl && (
+              <div className="w-full h-full p-8 md:p-14 flex flex-col justify-between bg-gradient-to-b from-[#0c0c0c] to-[#070707] text-white/90">
+                <div className="border-b border-white/10 pb-4 flex items-center justify-between">
+                  <div>
+                    <div className="text-[11px] font-mono tracking-widest text-white/40 uppercase">
+                      DEPARTMENT OF COMPUTER SCIENCE & ENGINEERING
+                    </div>
+                    <div className="text-lg font-bold tracking-tight text-white mt-1">
+                      {subjectInfo.name} ({doc.subject})
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs font-mono text-white/50 border border-white/10 px-2 py-0.5 rounded">
+                      UNIT {doc.unit}
+                    </span>
+                    <div className="text-[10px] text-white/30 mt-1 font-mono">
+                      PAGE {currentPage} OF {totalPages}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="my-auto space-y-4 text-center">
+                  <h2 className="text-base font-semibold text-white">
+                    {doc.title} — Page {currentPage}
                   </h2>
-                  <p className="text-white/60 leading-normal">
-                    This document serves as the canonical syllabus standard. Core theoretical
-                    constructs, algorithmic complexities, and design invariants are detailed below
-                    for collaborative cohort review.
+                  <p className="text-xs text-white/50 max-w-md mx-auto">
+                    {doc.syllabusTopic || 'Core Syllabus Foundations & Examination Targets'}
                   </p>
                 </div>
 
-                <div className="p-4 rounded-xl bg-pitch/80 border border-white/10 font-mono text-xs space-y-2">
-                  <div className="text-white/40 uppercase text-[10px] tracking-wider">
-                    Target Syllabus Concepts & Invariants:
-                  </div>
-                  <div className="text-white/95">
-                    {doc.syllabusTopic || 'Formal theorems and proof techniques for Unit ' + doc.unit}
-                  </div>
+                <div className="border-t border-white/10 pt-3 text-[10px] text-white/30 font-mono text-center">
+                  SYLLABI OS • IMMUTABLE BASE LAYER (Z-0)
                 </div>
               </div>
-
-              {/* Footer of page */}
-              <div className="border-t border-white/10 pt-3 flex items-center justify-between text-[10px] text-white/30 font-mono">
-                <span>SYLLABI OS • IMMUTABLE BASE LAYER (Z-0)</span>
-                <span>RESTRICTED COHORT ACCESS</span>
-                <span>VERIFIED SYLLABUS SPECIFICATION</span>
-              </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* DYNAMIC ANNOTATION LAYER (z-10): TRANSPARENT OVERLAY RULE */}
-          <div className="absolute inset-0 z-10">
+          <div className="absolute inset-0 z-10 pointer-events-auto">
             <AnnotationCanvas
               pageNumber={currentPage}
               initialGeometry={pageGeometries[currentPage]}
               activeTool={activeTool}
+              strokeColor={activeColor}
               isSharedLayer={isSharedLayer}
               canEdit={true}
+              isTouchMode={isTouchMode}
               onSave={handleSaveGeometry}
             />
           </div>
@@ -297,7 +276,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 
       {/* 3. APPLE-STYLE FLOATING DOCK TOOLBAR (BOTTOM) */}
       <footer className="h-20 px-6 border-t border-white/10 bg-surface/90 backdrop-blur-2xl flex items-center justify-between z-30 flex-shrink-0">
-        {/* PAGE NAVIGATION CONTROLS */}
+        {/* PAGE NAVIGATION & BOOKMARKS */}
         <div className="flex items-center gap-3">
           <div className="flex items-center bg-interactive border border-white/15 rounded-2xl p-1">
             <button
@@ -309,11 +288,11 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
               <ChevronLeft className="w-4 h-4" />
             </button>
             <span className="text-xs font-mono font-medium px-3 text-white/90">
-              {currentPage} <span className="text-white/40">/ {doc.totalPages}</span>
+              {currentPage} <span className="text-white/40">/ {totalPages}</span>
             </span>
             <button
-              onClick={() => setCurrentPage((p) => Math.min(doc.totalPages, p + 1))}
-              disabled={currentPage >= doc.totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
               className="p-1.5 rounded-xl text-white/60 hover:text-white disabled:opacity-30 disabled:hover:text-white/60 transition-colors"
               title="Next Page"
             >
@@ -343,7 +322,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
               </span>
             </button>
 
-            {/* Quick Bookmark naming popover */}
+            {/* Bookmark naming popover */}
             {bookmarkInputOpen && (
               <form
                 onSubmit={handleAddBookmarkSubmit}
@@ -380,34 +359,132 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           </div>
         </div>
 
-        {/* PRIMARY ANNOTATION PALETTE (CENTER DOCK) */}
-        <div className="flex items-center bg-interactive border border-white/20 rounded-2xl p-1.5 shadow-glow">
-          {(
-            [
-              { tool: 'pen', label: 'Pen', icon: Pen },
-              { tool: 'highlighter', label: 'Highlighter', icon: Highlighter },
-              { tool: 'eraser', label: 'Eraser', icon: Eraser },
-              { tool: 'note', label: 'Note', icon: MessageSquare },
-            ] as const
-          ).map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTool === item.tool;
-            return (
-              <button
-                key={item.tool}
-                onClick={() => setActiveTool(item.tool)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-150 ${
-                  isActive
-                    ? 'bg-white text-black font-semibold shadow-md'
-                    : 'text-white/60 hover:text-white hover:bg-white/5'
-                }`}
-                title={item.label}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{item.label}</span>
-              </button>
-            );
-          })}
+        {/* PRIMARY ANNOTATION DOCK WITH COLOR PICKER & TOUCH MODE */}
+        <div className="flex items-center gap-2">
+          {/* TOOL SELECTOR */}
+          <div className="flex items-center bg-interactive border border-white/20 rounded-2xl p-1.5 shadow-glow">
+            {/* Free Mouse Cursor Tool */}
+            <button
+              onClick={() => setActiveTool('select')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                activeTool === 'select'
+                  ? 'bg-white text-black font-semibold shadow-md'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+              title="Free Mouse Cursor / Selection Mode"
+            >
+              <MousePointer className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Cursor</span>
+            </button>
+
+            {/* Pen Tool */}
+            <button
+              onClick={() => setActiveTool('pen')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                activeTool === 'pen'
+                  ? 'bg-white text-black font-semibold shadow-md'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+              title="Pen Tool"
+            >
+              <Pen className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Pen</span>
+            </button>
+
+            {/* Highlighter Tool */}
+            <button
+              onClick={() => setActiveTool('highlighter')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                activeTool === 'highlighter'
+                  ? 'bg-white text-black font-semibold shadow-md'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+              title="Highlighter Tool"
+            >
+              <Highlighter className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Highlighter</span>
+            </button>
+
+            {/* Eraser Tool */}
+            <button
+              onClick={() => setActiveTool('eraser')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                activeTool === 'eraser'
+                  ? 'bg-white text-black font-semibold shadow-md'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+              title="Eraser Tool"
+            >
+              <Eraser className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Eraser</span>
+            </button>
+
+            {/* Note Tool */}
+            <button
+              onClick={() => setActiveTool('note')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                activeTool === 'note'
+                  ? 'bg-white text-black font-semibold shadow-md'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+              title="Sticky Note Tool"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Note</span>
+            </button>
+          </div>
+
+          {/* COLOR PICKER POPUP / SELECTOR */}
+          <div className="relative">
+            <button
+              onClick={() => setShowColorPicker(!showColorPicker)}
+              className="flex items-center gap-1.5 px-2.5 py-2 rounded-2xl bg-interactive border border-white/20 hover:border-white/40 transition-colors"
+              title="Change Pen/Highlighter Color"
+            >
+              <span
+                className="w-4 h-4 rounded-full border border-black/40 shadow-sm"
+                style={{ backgroundColor: activeColor }}
+              />
+              <Palette className="w-3.5 h-3.5 text-white/60" />
+            </button>
+
+            {showColorPicker && (
+              <div className="absolute left-1/2 -translate-x-1/2 bottom-12 ios-glass-panel p-2 shadow-2xl flex items-center gap-1.5 z-40 animate-scale-up">
+                {PALETTE_COLORS.map((col) => (
+                  <button
+                    key={col.value}
+                    onClick={() => {
+                      setActiveColor(col.value);
+                      setShowColorPicker(false);
+                    }}
+                    className="w-6 h-6 rounded-full border border-white/20 flex items-center justify-center transition-transform hover:scale-110"
+                    style={{ backgroundColor: col.value }}
+                    title={col.name}
+                  >
+                    {activeColor === col.value && (
+                      <Check className="w-3 h-3 text-black stroke-[3]" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* TOUCH MODE TOGGLE */}
+          <button
+            onClick={() => setIsTouchMode(!isTouchMode)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-2xl border text-xs font-medium transition-all ${
+              isTouchMode
+                ? 'bg-white text-black font-semibold border-white shadow-glow'
+                : 'bg-interactive border-white/15 text-white/60 hover:text-white'
+            }`}
+            title="Toggle Touchscreen/Stylus Drawing Mode"
+          >
+            <Touchpad className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">
+              {isTouchMode ? 'Touch Mode On' : 'Touch Mode'}
+            </span>
+          </button>
         </div>
 
         {/* ZOOM & VIEWPORT CONTROLS */}

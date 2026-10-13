@@ -15,6 +15,7 @@ import {
   Lock,
 } from 'lucide-react';
 import Link from 'next/link';
+import { ThemeToggle } from '@/components/theme/ThemeProvider';
 
 export default function HomePage() {
   const router = useRouter();
@@ -54,10 +55,11 @@ export default function HomePage() {
         <div className="flex items-center gap-3">
           <Link
             href="/rooms/room-demo"
-            className="px-4 py-2 bg-surface hover:bg-interactive border border-white/15 rounded-2xl text-xs font-medium text-white transition-all shadow-sm"
+            className="px-4 py-2 bg-surface dark:bg-surface light:bg-zinc-100 hover:bg-interactive dark:hover:bg-interactive light:hover:bg-zinc-200 border border-white/15 dark:border-white/15 light:border-zinc-300 rounded-2xl text-xs font-medium text-white dark:text-white light:text-zinc-900 transition-all shadow-sm"
           >
             Launch Demo Room
           </Link>
+          <ThemeToggle />
         </div>
       </header>
 

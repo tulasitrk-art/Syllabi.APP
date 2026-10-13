@@ -19,8 +19,24 @@ interface AnnotationCanvasProps {
   strokeWidth?: number; // relative normalized scale
   isSharedLayer?: boolean;
   canEdit?: boolean;
+  isTouchMode?: boolean;
   onSave?: (geometry: PageAnnotationGeometry) => void;
   className?: string;
+}
+
+// Convert hex color to semi-transparent rgba string for highlighters
+function hexToRgba(hex: string, alpha: number = 0.35): string {
+  if (hex.startsWith('rgba') || hex.startsWith('hsla')) return hex;
+  let c = hex.replace('#', '');
+  if (c.length === 3) {
+    c = c.split('').map((x) => x + x).join('');
+  }
+  const num = parseInt(c, 16);
+  if (isNaN(num)) return `rgba(253, 224, 71, ${alpha})`;
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
@@ -31,6 +47,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   strokeWidth = 0.003,
   isSharedLayer = true,
   canEdit = true,
+  isTouchMode = false,
   onSave,
   className = '',
 }) => {
@@ -101,11 +118,11 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         ctx.beginPath();
 
         if (item.tool === 'highlighter') {
-          ctx.strokeStyle = item.color || 'rgba(255, 255, 255, 0.28)';
-          ctx.lineWidth = Math.max(14, (item.width || 0.018) * rect.width);
+          ctx.strokeStyle = item.color || hexToRgba(strokeColor, 0.35);
+          ctx.lineWidth = Math.max(16, (item.width || 0.018) * rect.width);
           ctx.lineCap = 'square';
           ctx.lineJoin = 'miter';
-          ctx.globalCompositeOperation = 'screen';
+          ctx.globalCompositeOperation = 'multiply';
         } else {
           ctx.strokeStyle = item.color || '#ffffff';
           ctx.lineWidth = Math.max(2, (item.width || 0.003) * rect.width);
@@ -130,7 +147,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     });
 
     ctx.restore();
-  }, [items]);
+  }, [items, strokeColor]);
 
   useEffect(() => {
     redraw();
@@ -141,7 +158,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
   // Pointer Down
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!canEdit) return;
+    if (!canEdit || activeTool === 'select') return;
     const pt = getNormalizedPoint(e.clientX, e.clientY);
     if (!pt) return;
 
@@ -162,7 +179,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
   // Pointer Move
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!canEdit) return;
+    if (!canEdit || activeTool === 'select') return;
     const pt = getNormalizedPoint(e.clientX, e.clientY);
     if (!pt) return;
 
@@ -182,10 +199,10 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             ctx.scale(dpr, dpr);
             ctx.beginPath();
             if (activeTool === 'highlighter') {
-              ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
-              ctx.lineWidth = Math.max(14, 0.018 * rect.width);
+              ctx.strokeStyle = hexToRgba(strokeColor, 0.35);
+              ctx.lineWidth = Math.max(16, 0.018 * rect.width);
               ctx.lineCap = 'square';
-              ctx.globalCompositeOperation = 'screen';
+              ctx.globalCompositeOperation = 'multiply';
             } else {
               ctx.strokeStyle = strokeColor;
               ctx.lineWidth = Math.max(2, strokeWidth * rect.width);
@@ -217,14 +234,15 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     }
 
     if (currentPointsRef.current.length > 1) {
+      const isHighlighter = activeTool === 'highlighter';
       const newStroke: StrokePath = {
         id: `stroke_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         type: 'stroke',
-        tool: activeTool === 'highlighter' ? 'highlighter' : 'pen',
+        tool: isHighlighter ? 'highlighter' : 'pen',
         points: [...currentPointsRef.current],
-        color: activeTool === 'highlighter' ? 'rgba(255, 255, 255, 0.28)' : strokeColor,
-        width: activeTool === 'highlighter' ? 0.018 : strokeWidth,
-        opacity: activeTool === 'highlighter' ? 0.3 : 1.0,
+        color: isHighlighter ? hexToRgba(strokeColor, 0.35) : strokeColor,
+        width: isHighlighter ? 0.018 : strokeWidth,
+        opacity: isHighlighter ? 0.35 : 1.0,
       };
 
       const updated = [...items, newStroke];
@@ -236,7 +254,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
   // Erase items within normalized radius
   const eraseAtPoint = (pt: NormalizedPoint) => {
-    const eraseRadius = 0.025; // 2.5% of page dimension
+    const eraseRadius = 0.03; // 3% of page dimension
     const updated = items.filter((item) => {
       if (item.type === 'stroke') {
         return !item.points.some(
@@ -287,7 +305,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         x: activeNoteModal.x,
         y: activeNoteModal.y,
         text: text.trim(),
-        color: '#ffffff',
+        color: strokeColor,
         createdAt: new Date().toISOString(),
       };
       updated = [...items, newNote];
@@ -300,13 +318,15 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
   const getCursorClass = () => {
     switch (activeTool) {
+      case 'select':
+        return 'cursor-default pointer-events-none';
       case 'pen':
       case 'highlighter':
-        return 'cursor-crosshair';
+        return 'cursor-crosshair pointer-events-auto';
       case 'eraser':
-        return 'cursor-cell';
+        return 'cursor-cell pointer-events-auto';
       case 'note':
-        return 'cursor-text';
+        return 'cursor-text pointer-events-auto';
       default:
         return 'cursor-default';
     }
@@ -317,7 +337,8 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`relative w-full h-full select-none touch-none ${className}`}
+      className={`relative w-full h-full select-none ${className}`}
+      style={{ touchAction: isTouchMode ? 'none' : 'auto' }}
     >
       {/* HTML5 Vector Canvas for crisp scalable strokes (z-10 layer) */}
       <canvas
@@ -327,7 +348,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
         className={`absolute inset-0 w-full h-full ${getCursorClass()}`}
-        style={{ touchAction: 'none' }}
+        style={{ touchAction: isTouchMode ? 'none' : 'auto' }}
       />
 
       {/* Floating Monochrome Sticky Note Pins */}
@@ -339,7 +360,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             top: `${note.y * 100}%`,
             transform: 'translate(-50%, -50%)',
           }}
-          className="absolute z-20 group"
+          className="absolute z-20 group pointer-events-auto"
         >
           <button
             onClick={() =>
@@ -350,10 +371,10 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
                 noteId: note.id,
               })
             }
-            className="w-7 h-7 rounded-full bg-surface border border-white/30 flex items-center justify-center shadow-glow transition-all hover:scale-110 hover:border-white active:scale-95"
+            className="w-7 h-7 rounded-full bg-surface dark:bg-surface border border-white/30 dark:border-white/30 flex items-center justify-center shadow-glow transition-all hover:scale-110 hover:border-white active:scale-95"
             title="View study note"
           >
-            <MessageSquare className="w-3.5 h-3.5 text-white" />
+            <MessageSquare className="w-3.5 h-3.5 text-white dark:text-white" />
           </button>
 
           {/* Hover preview callout */}
@@ -372,7 +393,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
             left: `${Math.min(0.75, Math.max(0.1, activeNoteModal.x)) * 100}%`,
             top: `${Math.min(0.75, Math.max(0.1, activeNoteModal.y)) * 100}%`,
           }}
-          className="absolute z-30 -translate-x-1/2 -translate-y-1/2 w-72 animate-scale-up"
+          className="absolute z-30 -translate-x-1/2 -translate-y-1/2 w-72 animate-scale-up pointer-events-auto"
         >
           <div className="ios-glass-panel p-3.5 shadow-2xl">
             <div className="flex items-center justify-between pb-2 border-b border-white/10 mb-2">

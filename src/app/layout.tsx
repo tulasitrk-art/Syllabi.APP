@@ -14,6 +14,8 @@ export const viewport: Viewport = {
   colorScheme: 'dark',
 };
 
+import { ThemeProvider } from '@/components/theme/ThemeProvider';
+
 export default function RootLayout({
   children,
 }: {
@@ -21,10 +23,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className="min-h-screen bg-pitch text-white antialiased selection:bg-white/20 selection:text-white">
-        <div className="relative min-h-screen flex flex-col">
-          {children}
-        </div>
+      <body className="min-h-screen bg-pitch text-white dark:bg-pitch dark:text-white antialiased selection:bg-white/20 selection:text-white transition-colors duration-200">
+        <ThemeProvider>
+          <div className="relative min-h-screen flex flex-col">
+            {children}
+          </div>
+        </ThemeProvider>
       </body>
     </html>
   );
