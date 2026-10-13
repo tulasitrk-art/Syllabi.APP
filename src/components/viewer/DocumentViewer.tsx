@@ -186,72 +186,100 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           className="relative w-full max-w-4xl aspect-[1/1.414] bg-surface rounded-2xl border border-white/15 shadow-ios overflow-hidden"
         >
           {/* BASE DEPTH (z-0): IMMUTABLE DOCUMENT BASE RENDERING */}
-          <div className="absolute inset-0 z-0 p-8 md:p-14 flex flex-col justify-between bg-gradient-to-b from-[#0c0c0c] to-[#070707] text-white/90 select-none pointer-events-none">
-            {/* Header of syllabus page */}
-            <div className="border-b border-white/10 pb-4 flex items-center justify-between">
-              <div>
-                <div className="text-[11px] font-mono tracking-widest text-white/40 uppercase">
-                  DEPARTMENT OF COMPUTER SCIENCE & ENGINEERING
+          {doc.fileUrl ? (
+            <div className="absolute inset-0 z-0 bg-[#080808] flex items-center justify-center overflow-hidden">
+              <object
+                data={`${doc.fileUrl}#page=${currentPage}&toolbar=0&navpanes=0`}
+                type="application/pdf"
+                className="w-full h-full border-0 pointer-events-none select-none"
+              >
+                {/* Fallback if browser PDF viewer plugin is disabled */}
+                <div className="w-full h-full p-8 md:p-14 flex flex-col justify-between bg-gradient-to-b from-[#0c0c0c] to-[#070707] text-white/90">
+                  <div className="border-b border-white/10 pb-4 flex items-center justify-between">
+                    <div>
+                      <div className="text-[11px] font-mono tracking-widest text-white/40 uppercase">
+                        DEPARTMENT OF COMPUTER SCIENCE & ENGINEERING
+                      </div>
+                      <div className="text-lg font-bold tracking-tight text-white mt-1">
+                        {subjectInfo.name} ({doc.subject})
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs font-mono text-white/50 border border-white/10 px-2 py-0.5 rounded">
+                        UNIT {doc.unit}
+                      </span>
+                      <div className="text-[10px] text-white/30 mt-1 font-mono">
+                        PAGE {currentPage} OF {doc.totalPages}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="my-auto space-y-4 text-center">
+                    <h2 className="text-base font-semibold text-white">
+                      {doc.title} — Section {doc.unit}.{currentPage}
+                    </h2>
+                    <p className="text-xs text-white/50 max-w-md mx-auto">
+                      {doc.syllabusTopic || 'Core Syllabus Foundations & Examination Targets'}
+                    </p>
+                  </div>
+                  <div className="border-t border-white/10 pt-3 text-[10px] text-white/30 font-mono text-center">
+                    SYLLABI OS • IMMUTABLE BASE LAYER (Z-0)
+                  </div>
                 </div>
-                <div className="text-lg font-bold tracking-tight text-white mt-1">
-                  {subjectInfo.name} ({doc.subject})
+              </object>
+            </div>
+          ) : (
+            <div className="absolute inset-0 z-0 p-8 md:p-14 flex flex-col justify-between bg-gradient-to-b from-[#0c0c0c] to-[#070707] text-white/90 select-none pointer-events-none">
+              {/* Header of syllabus page */}
+              <div className="border-b border-white/10 pb-4 flex items-center justify-between">
+                <div>
+                  <div className="text-[11px] font-mono tracking-widest text-white/40 uppercase">
+                    DEPARTMENT OF COMPUTER SCIENCE & ENGINEERING
+                  </div>
+                  <div className="text-lg font-bold tracking-tight text-white mt-1">
+                    {subjectInfo.name} ({doc.subject})
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-mono text-white/50 border border-white/10 px-2 py-0.5 rounded">
+                    UNIT {doc.unit}
+                  </span>
+                  <div className="text-[10px] text-white/30 mt-1 font-mono">
+                    PAGE {currentPage} OF {doc.totalPages}
+                  </div>
                 </div>
               </div>
-              <div className="text-right">
-                <span className="text-xs font-mono text-white/50 border border-white/10 px-2 py-0.5 rounded">
-                  UNIT {doc.unit}
-                </span>
-                <div className="text-[10px] text-white/30 mt-1 font-mono">
-                  PAGE {currentPage} OF {doc.totalPages}
+
+              {/* High-Res Syllabus Document Body */}
+              <div className="my-auto space-y-6 text-xs md:text-sm leading-relaxed text-white/80">
+                <div className="space-y-2">
+                  <h2 className="text-base font-semibold text-white tracking-tight">
+                    Section {doc.unit}.{currentPage}: {doc.syllabusTopic || 'Core Theoretical Foundations'}
+                  </h2>
+                  <p className="text-white/60 leading-normal">
+                    This document serves as the canonical syllabus standard. Core theoretical
+                    constructs, algorithmic complexities, and design invariants are detailed below
+                    for collaborative cohort review.
+                  </p>
                 </div>
+
+                <div className="p-4 rounded-xl bg-pitch/80 border border-white/10 font-mono text-xs space-y-2">
+                  <div className="text-white/40 uppercase text-[10px] tracking-wider">
+                    Target Syllabus Concepts & Invariants:
+                  </div>
+                  <div className="text-white/95">
+                    {doc.syllabusTopic || 'Formal theorems and proof techniques for Unit ' + doc.unit}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer of page */}
+              <div className="border-t border-white/10 pt-3 flex items-center justify-between text-[10px] text-white/30 font-mono">
+                <span>SYLLABI OS • IMMUTABLE BASE LAYER (Z-0)</span>
+                <span>RESTRICTED COHORT ACCESS</span>
+                <span>VERIFIED SYLLABUS SPECIFICATION</span>
               </div>
             </div>
-
-            {/* Simulated High-Res Syllabus Document Body */}
-            <div className="my-auto space-y-6 text-xs md:text-sm leading-relaxed text-white/80">
-              <div className="space-y-2">
-                <h2 className="text-base font-semibold text-white tracking-tight">
-                  Section {doc.unit}.{currentPage}: {doc.syllabusTopic || 'Core Theoretical Foundations'}
-                </h2>
-                <p className="text-white/60 leading-normal">
-                  This document serves as the canonical syllabus standard. Core theoretical
-                  constructs, algorithmic complexities, and design invariants are detailed below
-                  for collaborative cohort review.
-                </p>
-              </div>
-
-              {/* Sample Syllabus Key Equations / Concepts */}
-              <div className="p-4 rounded-xl bg-pitch/80 border border-white/10 font-mono text-xs space-y-2">
-                <div className="text-white/40 uppercase text-[10px] tracking-wider">
-                  Key Invariant & Mathematical Formalism:
-                </div>
-                <div className="text-white/95">
-                  Let f(n) = g(n) + h(n), where h(n) ≤ c(n, a, n&apos;) + h(n&apos;) for consistency.
-                </div>
-                <div className="text-white/50 text-[11px]">
-                  Time Bound: O(b^d) | Space Invariant: O(b • d) using iterative memory depth bounding.
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-white uppercase tracking-wider">
-                  Cohort Learning Objectives
-                </h3>
-                <ul className="list-disc pl-5 space-y-1 text-white/60 text-xs">
-                  <li>Analyze state-space complexity bounds and node expansion graphs.</li>
-                  <li>Verify strict monotonicity proofs across all heuristic functions.</li>
-                  <li>Annotate common examination edge cases and test questions.</li>
-                </ul>
-              </div>
-            </div>
-
-            {/* Footer of page */}
-            <div className="border-t border-white/10 pt-3 flex items-center justify-between text-[10px] text-white/30 font-mono">
-              <span>SYLLABI OS • IMMUTABLE BASE LAYER (Z-0)</span>
-              <span>RESTRICTED COHORT ACCESS</span>
-              <span>VERIFIED SYLLABUS SPECIFICATION</span>
-            </div>
-          </div>
+          )}
 
           {/* DYNAMIC ANNOTATION LAYER (z-10): TRANSPARENT OVERLAY RULE */}
           <div className="absolute inset-0 z-10">

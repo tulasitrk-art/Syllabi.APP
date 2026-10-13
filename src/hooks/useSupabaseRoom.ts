@@ -6,134 +6,35 @@ import {
   DocumentWithProgress,
   StudyRoomSummary,
   UserPresence,
-  PageAnnotationGeometry,
   Bookmark,
 } from '@/types/syllabi';
 import { DocumentStatus, SubjectCode } from '@/types/database';
 
-// Initial Mock Seed for Zero-Config Out-of-the-Box Local Execution
-const DEFAULT_DEMO_DOCUMENTS: DocumentWithProgress[] = [
-  {
-    id: 'doc-ai-u1',
-    roomId: 'room-demo',
-    uploadedBy: 'user-lead',
-    title: 'AI_Unit_1_Heuristic_Search_A_Star.pdf',
-    subject: 'AI',
-    unit: 1,
-    syllabusTopic: 'A* Search, IDA*, Admissibility & Monotonicity',
-    fileUrl: '/samples/ai-unit-1.pdf',
-    totalPages: 8,
-    createdAt: new Date(Date.now() - 3600 * 1000 * 4).toISOString(),
-    userProgress: {
-      status: 'IN_PROGRESS',
-      bookmarks: [
-        { id: 'bm-1', pageNumber: 3, title: 'Admissible Heuristics Proof', createdAt: new Date().toISOString() },
-        { id: 'bm-2', pageNumber: 7, title: 'IDA* Space Complexity Bounds', createdAt: new Date().toISOString() }
-      ],
-    },
-    annotationCount: 14,
-  },
-  {
-    id: 'doc-ads-u2',
-    roomId: 'room-demo',
-    uploadedBy: 'user-lead',
-    title: 'ADS_Unit_2_Red_Black_Trees_B_Trees.pdf',
-    subject: 'ADS',
-    unit: 2,
-    syllabusTopic: 'Red-Black Tree Rotations & 2-3-4 B-Tree Invariants',
-    fileUrl: '/samples/ads-unit-2.pdf',
-    totalPages: 12,
-    createdAt: new Date(Date.now() - 3600 * 1000 * 24).toISOString(),
-    userProgress: {
-      status: 'READ',
-      bookmarks: [
-        { id: 'bm-3', pageNumber: 4, title: 'Case 3 Double Rotation Matrix', createdAt: new Date().toISOString() }
-      ],
-    },
-    annotationCount: 22,
-  },
-  {
-    id: 'doc-devc-u3',
-    roomId: 'room-demo',
-    uploadedBy: 'user-architect',
-    title: 'DEVC_Unit_3_Kubernetes_Pod_Networking.pdf',
-    subject: 'DEVC',
-    unit: 3,
-    syllabusTopic: 'CNI Plugins, Calico vs Flannel, Ingress Controllers',
-    fileUrl: '/samples/devc-unit-3.pdf',
-    totalPages: 16,
-    createdAt: new Date(Date.now() - 3600 * 1000 * 12).toISOString(),
-    userProgress: {
-      status: 'NEEDS_REVISION',
-      bookmarks: [],
-    },
-    annotationCount: 9,
-  },
-  {
-    id: 'doc-java-u4',
-    roomId: 'room-demo',
-    uploadedBy: 'user-architect',
-    title: 'JAVA_Unit_4_JVM_JMM_Virtual_Threads.pdf',
-    subject: 'JAVA',
-    unit: 4,
-    syllabusTopic: 'Project Loom, Virtual Threads, Happens-Before Order',
-    fileUrl: '/samples/java-unit-4.pdf',
-    totalPages: 20,
-    createdAt: new Date(Date.now() - 3600 * 1000 * 48).toISOString(),
-    userProgress: {
-      status: 'UNREAD',
-      bookmarks: [],
-    },
-    annotationCount: 5,
-  },
-  {
-    id: 'doc-uhv-u1',
-    roomId: 'room-demo',
-    uploadedBy: 'user-peer',
-    title: 'UHV_Unit_1_Self_Exploration_Harmony.pdf',
-    subject: 'UHV',
-    unit: 1,
-    syllabusTopic: 'Harmony in the Human Being & Natural Acceptance',
-    fileUrl: '/samples/uhv-unit-1.pdf',
-    totalPages: 6,
-    createdAt: new Date(Date.now() - 3600 * 1000 * 72).toISOString(),
-    userProgress: {
-      status: 'READ',
-      bookmarks: [],
-    },
-    annotationCount: 3,
-  },
-];
-
 export function useSupabaseRoom(roomId: string) {
   const supabase = useMemo(() => createClient(), []);
-  const [documents, setDocuments] = useState<DocumentWithProgress[]>(DEFAULT_DEMO_DOCUMENTS);
+  
+  // No default mock PDFs - clean slate ready for student uploads
+  const [documents, setDocuments] = useState<DocumentWithProgress[]>([]);
   const [roomInfo, setRoomInfo] = useState<StudyRoomSummary>({
     id: roomId,
     name: 'CS Core — Fall 2026',
     joinCode: 'SYL-8492',
     createdBy: '00000000-0000-0000-0000-000000000000',
     createdAt: new Date().toISOString(),
-    memberCount: 4,
-    documentCount: DEFAULT_DEMO_DOCUMENTS.length,
+    memberCount: 1,
+    documentCount: 0,
     userRole: 'owner',
   });
+  
   const [activePresences, setActivePresences] = useState<UserPresence[]>([
     {
-      userId: 'usr-1',
-      userName: 'Lead Architect',
-      activeDocId: 'doc-ai-u1',
-      activePage: 3,
-      lastSeen: new Date().toISOString(),
-    },
-    {
-      userId: 'usr-2',
-      userName: 'Rhea (Peer)',
-      activeDocId: 'doc-ads-u2',
-      activePage: 4,
+      userId: 'usr-current',
+      userName: 'Current Student',
+      activePage: 1,
       lastSeen: new Date().toISOString(),
     },
   ]);
+  
   const [isConnected, setIsConnected] = useState<boolean>(false);
 
   // Check if live Supabase configuration is present
@@ -141,6 +42,34 @@ export function useSupabaseRoom(roomId: string) {
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
     process.env.NEXT_PUBLIC_SUPABASE_URL !== 'https://mock.supabase.co'
   );
+
+  // Load local persistent documents if offline / no supabase
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(`syllabi_docs_${roomId}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setDocuments(parsed);
+          }
+        }
+      } catch (e) {
+        console.warn('Could not read stored documents:', e);
+      }
+    }
+  }, [roomId]);
+
+  // Sync to local storage
+  const syncToLocalStorage = useCallback((docs: DocumentWithProgress[]) => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(`syllabi_docs_${roomId}`, JSON.stringify(docs));
+      } catch (e) {
+        console.warn('Could not save to localStorage:', e);
+      }
+    }
+  }, [roomId]);
 
   // Initial fetch and Realtime channel setup
   useEffect(() => {
@@ -204,6 +133,7 @@ export function useSupabaseRoom(roomId: string) {
             };
           });
           setDocuments(mapped);
+          syncToLocalStorage(mapped);
         }
       } catch (err) {
         console.warn('Supabase fetch fallback:', err);
@@ -239,13 +169,13 @@ export function useSupabaseRoom(roomId: string) {
       isMounted = false;
       supabase.removeChannel(channel);
     };
-  }, [roomId, supabase, isSupabaseConfigured]);
+  }, [roomId, supabase, isSupabaseConfigured, syncToLocalStorage]);
 
   // Update document status checklist
   const updateDocumentStatus = useCallback(
     async (documentId: string, status: DocumentStatus) => {
-      setDocuments((prev) =>
-        prev.map((doc) => {
+      setDocuments((prev) => {
+        const next = prev.map((doc) => {
           if (doc.id === documentId) {
             return {
               ...doc,
@@ -256,8 +186,10 @@ export function useSupabaseRoom(roomId: string) {
             };
           }
           return doc;
-        })
-      );
+        });
+        syncToLocalStorage(next);
+        return next;
+      });
 
       if (isSupabaseConfigured) {
         try {
@@ -276,7 +208,7 @@ export function useSupabaseRoom(roomId: string) {
         }
       }
     },
-    [isSupabaseConfigured, supabase]
+    [isSupabaseConfigured, supabase, syncToLocalStorage]
   );
 
   // Add Bookmark
@@ -289,8 +221,8 @@ export function useSupabaseRoom(roomId: string) {
         createdAt: new Date().toISOString(),
       };
 
-      setDocuments((prev) =>
-        prev.map((doc) => {
+      setDocuments((prev) => {
+        const next = prev.map((doc) => {
           if (doc.id === documentId) {
             const currentBms = doc.userProgress?.bookmarks || [];
             return {
@@ -302,8 +234,10 @@ export function useSupabaseRoom(roomId: string) {
             };
           }
           return doc;
-        })
-      );
+        });
+        syncToLocalStorage(next);
+        return next;
+      });
 
       if (isSupabaseConfigured) {
         try {
@@ -325,7 +259,7 @@ export function useSupabaseRoom(roomId: string) {
         }
       }
     },
-    [documents, isSupabaseConfigured, supabase]
+    [documents, isSupabaseConfigured, supabase, syncToLocalStorage]
   );
 
   // Upload or register a new document
@@ -346,8 +280,8 @@ export function useSupabaseRoom(roomId: string) {
         subject: payload.subject,
         unit: payload.unit,
         syllabusTopic: payload.syllabusTopic,
-        fileUrl: payload.fileUrl || '/samples/default-syllabus.pdf',
-        totalPages: payload.totalPages || 10,
+        fileUrl: payload.fileUrl || '',
+        totalPages: payload.totalPages || 1,
         createdAt: new Date().toISOString(),
         userProgress: {
           status: 'UNREAD',
@@ -356,7 +290,11 @@ export function useSupabaseRoom(roomId: string) {
         annotationCount: 0,
       };
 
-      setDocuments((prev) => [newDoc, ...prev]);
+      setDocuments((prev) => {
+        const next = [newDoc, ...prev];
+        syncToLocalStorage(next);
+        return next;
+      });
 
       if (isSupabaseConfigured) {
         try {
@@ -368,15 +306,37 @@ export function useSupabaseRoom(roomId: string) {
             subject: payload.subject,
             unit: payload.unit,
             syllabus_topic: payload.syllabusTopic,
-            file_url: payload.fileUrl || '/samples/default-syllabus.pdf',
-            total_pages: payload.totalPages || 10,
+            file_url: payload.fileUrl || '',
+            total_pages: payload.totalPages || 1,
           });
         } catch (err) {
           console.error('Failed to insert document:', err);
         }
       }
+
+      return newDoc;
     },
-    [roomId, isSupabaseConfigured, supabase]
+    [roomId, isSupabaseConfigured, supabase, syncToLocalStorage]
+  );
+
+  // Delete a document
+  const deleteDocument = useCallback(
+    async (documentId: string) => {
+      setDocuments((prev) => {
+        const next = prev.filter((d) => d.id !== documentId);
+        syncToLocalStorage(next);
+        return next;
+      });
+
+      if (isSupabaseConfigured) {
+        try {
+          await (supabase.from('documents') as any).delete().eq('id', documentId);
+        } catch (err) {
+          console.error('Failed to delete document:', err);
+        }
+      }
+    },
+    [isSupabaseConfigured, supabase, syncToLocalStorage]
   );
 
   return {
@@ -387,5 +347,6 @@ export function useSupabaseRoom(roomId: string) {
     updateDocumentStatus,
     addBookmark,
     addDocument,
+    deleteDocument,
   };
 }

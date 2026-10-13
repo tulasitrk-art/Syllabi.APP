@@ -1,14 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   DocumentWithProgress,
   StudyRoomSummary,
   UserPresence,
-  Bookmark,
 } from '@/types/syllabi';
 import { DocumentStatus, SubjectCode } from '@/types/database';
-import { STATUS_CONFIG, SUBJECT_METADATA } from '@/lib/utils';
+import { STATUS_CONFIG, SUBJECT_METADATA, SyllabusSection } from '@/lib/utils';
 import {
   BookOpen,
   Plus,
@@ -16,7 +15,6 @@ import {
   Check,
   Users,
   Search,
-  Filter,
   FileText,
   Clock,
   CheckCircle2,
@@ -26,9 +24,14 @@ import {
   MessageSquare,
   ArrowRight,
   Upload,
-  X,
-  Wifi,
   Radio,
+  FileUp,
+  FolderOpen,
+  ChevronDown,
+  ChevronRight,
+  Trash2,
+  Layers,
+  Sparkles,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -44,7 +47,9 @@ interface RoomDashboardProps {
     unit: number;
     syllabusTopic: string;
     totalPages?: number;
-  }) => void;
+    fileUrl?: string;
+  }) => Promise<DocumentWithProgress | void>;
+  onDeleteDocument?: (docId: string) => void;
 }
 
 export const RoomDashboard: React.FC<RoomDashboardProps> = ({
@@ -54,20 +59,27 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
   isConnected,
   onStatusChange,
   onAddDocument,
+  onDeleteDocument,
 }) => {
-  const [selectedSubject, setSelectedSubject] = useState<SubjectCode | 'ALL'>('ALL');
-  const [selectedUnit, setSelectedUnit] = useState<number | 'ALL'>('ALL');
-  const [selectedStatus, setSelectedStatus] = useState<DocumentStatus | 'ALL'>('ALL');
+  const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<SubjectCode | 'ALL'>('ALL');
+  const [selectedUnitFilter, setSelectedUnitFilter] = useState<number | 'ALL'>('ALL');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<DocumentStatus | 'ALL'>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
-  const [isUploadOpen, setIsUploadOpen] = useState<boolean>(false);
+  const [expandedSyllabusSubject, setExpandedSyllabusSubject] = useState<SubjectCode | null>('AI');
 
-  // Form states for Upload Modal
-  const [newTitle, setNewTitle] = useState<string>('');
-  const [newSubject, setNewSubject] = useState<SubjectCode>('AI');
-  const [newUnit, setNewUnit] = useState<number>(1);
-  const [newTopic, setNewTopic] = useState<string>('');
-  const [newPages, setNewPages] = useState<number>(10);
+  // Primary Upload Form States
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [uploadTitle, setUploadTitle] = useState<string>('');
+  const [uploadSubject, setUploadSubject] = useState<SubjectCode>('AI');
+  const [uploadUnit, setUploadUnit] = useState<number>(1);
+  const [uploadTopic, setUploadTopic] = useState<string>(
+    SUBJECT_METADATA.AI.sections[0]?.title || ''
+  );
+  const [uploadPages, setUploadPages] = useState<number>(8);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const copyJoinCode = () => {
     navigator.clipboard.writeText(roomInfo.joinCode);
@@ -75,30 +87,72 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  const handleUploadSubmit = (e: React.FormEvent) => {
+  // Handle local file selection
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setUploadedFile(file);
+      if (!uploadTitle) {
+        setUploadTitle(file.name);
+      }
+    }
+  };
+
+  // Handle subject change in upload form
+  const handleSubjectChange = (subj: SubjectCode) => {
+    setUploadSubject(subj);
+    const sections = SUBJECT_METADATA[subj].sections;
+    const defaultSection = sections.find((s) => s.unit === uploadUnit) || sections[0];
+    if (defaultSection) {
+      setUploadTopic(defaultSection.title);
+    }
+  };
+
+  // Handle unit section selection in upload form
+  const handleSectionSelect = (section: SyllabusSection) => {
+    setUploadUnit(section.unit);
+    setUploadTopic(`${section.title}: ${section.topics.slice(0, 3).join(', ')}`);
+  };
+
+  // Submit Upload Form
+  const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle.trim()) return;
+    if (!uploadTitle.trim()) return;
 
-    onAddDocument({
-      title: newTitle.trim().endsWith('.pdf') ? newTitle.trim() : `${newTitle.trim()}.pdf`,
-      subject: newSubject,
-      unit: Number(newUnit),
-      syllabusTopic: newTopic.trim(),
-      totalPages: Number(newPages) || 1,
-    });
+    setIsSubmitting(true);
+    let generatedFileUrl = '';
+    if (uploadedFile) {
+      generatedFileUrl = URL.createObjectURL(uploadedFile);
+    }
 
-    setNewTitle('');
-    setNewTopic('');
-    setIsUploadOpen(false);
+    try {
+      await onAddDocument({
+        title: uploadTitle.trim().endsWith('.pdf') ? uploadTitle.trim() : `${uploadTitle.trim()}.pdf`,
+        subject: uploadSubject,
+        unit: Number(uploadUnit),
+        syllabusTopic: uploadTopic.trim(),
+        totalPages: Number(uploadPages) || 1,
+        fileUrl: generatedFileUrl,
+      });
+
+      // Reset form
+      setUploadTitle('');
+      setUploadedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Filtered documents
   const filteredDocuments = documents.filter((doc) => {
-    if (selectedSubject !== 'ALL' && doc.subject !== selectedSubject) return false;
-    if (selectedUnit !== 'ALL' && doc.unit !== selectedUnit) return false;
-    if (selectedStatus !== 'ALL') {
+    if (selectedSubjectFilter !== 'ALL' && doc.subject !== selectedSubjectFilter) return false;
+    if (selectedUnitFilter !== 'ALL' && doc.unit !== selectedUnitFilter) return false;
+    if (selectedStatusFilter !== 'ALL') {
       const docStatus = doc.userProgress?.status || 'UNREAD';
-      if (docStatus !== selectedStatus) return false;
+      if (docStatus !== selectedStatusFilter) return false;
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -109,23 +163,21 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
     return true;
   });
 
-  // Calculate metrics
   const totalDocs = documents.length;
   const completedDocs = documents.filter((d) => d.userProgress?.status === 'READ').length;
   const inProgressDocs = documents.filter((d) => d.userProgress?.status === 'IN_PROGRESS').length;
-  const revisionDocs = documents.filter((d) => d.userProgress?.status === 'NEEDS_REVISION').length;
   const completionPercentage = totalDocs > 0 ? Math.round((completedDocs / totalDocs) * 100) : 0;
 
   return (
     <div className="flex-1 w-full bg-pitch text-white flex flex-col min-h-screen">
-      {/* 1. ROOM HEADER (Frosted Apple Glass Banner) */}
+      {/* 1. ROOM HEADER */}
       <header className="sticky top-0 z-20 w-full border-b border-white/10 bg-pitch/80 backdrop-blur-2xl px-6 py-4">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <Link
               href="/"
               className="w-10 h-10 rounded-2xl bg-surface border border-white/15 flex items-center justify-center hover:border-white/40 transition-colors"
-              title="Return to Study Rooms"
+              title="Return to Home"
             >
               <BookOpen className="w-5 h-5 text-white" />
             </Link>
@@ -150,13 +202,12 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                 </div>
               </div>
               <p className="text-xs text-white/40 mt-0.5">
-                Collaborative Monochrome Syllabus Space • {totalDocs} syllabus units registered
+                Collaborative Study Ecosystem • {totalDocs} syllabus documents loaded
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Realtime Status Indicator */}
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-surface border border-white/10 text-xs">
               <Radio
                 className={`w-3.5 h-3.5 ${
@@ -164,120 +215,301 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                 }`}
               />
               <span className="text-white/70 font-mono text-[11px]">
-                {isConnected ? 'Realtime Synced' : 'Connecting...'}
+                {isConnected ? 'Realtime Connected' : 'Connecting...'}
               </span>
             </div>
 
-            {/* Active Cohort Members Presence */}
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-surface border border-white/10 text-xs">
               <Users className="w-3.5 h-3.5 text-white/50" />
-              <div className="flex -space-x-1.5 overflow-hidden">
-                {activePresences.map((pres) => (
-                  <div
-                    key={pres.userId}
-                    className="inline-block h-5 w-5 rounded-full ring-2 ring-pitch bg-interactive text-[10px] font-mono text-center leading-5 text-white border border-white/20 font-bold"
-                    title={`${pres.userName} (Active on ${pres.activeDocId})`}
-                  >
-                    {pres.userName[0]}
-                  </div>
-                ))}
-              </div>
-              <span className="text-white/50 text-xs pl-1">
-                {activePresences.length} active
+              <span className="text-white/70 text-xs">
+                {activePresences.length} online
               </span>
             </div>
-
-            {/* Upload Document Action */}
-            <button
-              onClick={() => setIsUploadOpen(true)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-white text-black text-xs font-semibold rounded-2xl hover:bg-white/90 active:scale-95 transition-all shadow-glow"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Upload Syllabus</span>
-            </button>
           </div>
         </div>
       </header>
 
-      {/* 2. MAIN COHORT DASHBOARD BODY */}
+      {/* 2. MAIN WORKSPACE */}
       <main className="max-w-7xl mx-auto w-full px-6 py-8 flex-1 flex flex-col gap-8">
-        {/* ROOM PROGRESS & OVERVIEW CARDS */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="ios-glass-card p-5">
-            <span className="text-xs font-medium text-white/50 uppercase tracking-wider">
-              Cohort Syllabus Completion
-            </span>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold tracking-tight text-white">
-                {completionPercentage}%
-              </span>
-              <span className="text-xs text-white/40">
-                ({completedDocs}/{totalDocs} documents read)
-              </span>
+        {/* PRIMARY HERO: UPLOAD SECTION FIRST */}
+        <section className="w-full ios-glass-panel p-6 sm:p-8 shadow-2xl relative overflow-hidden border border-white/20">
+          <div className="flex flex-col lg:flex-row gap-8">
+            {/* Left side: Upload Form */}
+            <div className="flex-1 space-y-5">
+              <div className="flex items-center gap-2.5 pb-2 border-b border-white/10">
+                <div className="w-8 h-8 rounded-xl bg-white text-black flex items-center justify-center font-bold">
+                  <Upload className="w-4 h-4 text-black" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold tracking-tight text-white">
+                    Upload Syllabus Document
+                  </h2>
+                  <p className="text-xs text-white/50">
+                    Add PDF syllabus files, map to syllabus sections, and start collaborative annotating.
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleUploadSubmit} className="space-y-4">
+                {/* File Dropzone / Selector */}
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full border-2 border-dashed border-white/20 hover:border-white/50 rounded-2xl p-4 bg-pitch/60 flex flex-col items-center justify-center cursor-pointer transition-colors group"
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                  <FileUp className="w-6 h-6 text-white/40 group-hover:text-white transition-colors mb-2" />
+                  {uploadedFile ? (
+                    <div className="text-center">
+                      <span className="text-xs font-semibold text-white block">
+                        {uploadedFile.name}
+                      </span>
+                      <span className="text-[11px] text-white/40">
+                        {(uploadedFile.size / (1024 * 1024)).toFixed(2)} MB • Click to replace
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <span className="text-xs font-medium text-white/80 block">
+                        Click to select PDF or drag and drop
+                      </span>
+                      <span className="text-[11px] text-white/40">
+                        Supports PDF lecture notes, syllabi & exam sheets
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Title & Subject Selector */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-white/70 mb-1">
+                      Document Title
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Unit_1_Heuristics_and_Search.pdf"
+                      value={uploadTitle}
+                      onChange={(e) => setUploadTitle(e.target.value)}
+                      className="w-full bg-pitch border border-white/15 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-white/70 mb-1">
+                      Subject
+                    </label>
+                    <select
+                      value={uploadSubject}
+                      onChange={(e) => handleSubjectChange(e.target.value as SubjectCode)}
+                      className="w-full bg-pitch border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-white"
+                    >
+                      {(['AI', 'ADS', 'DEVC', 'JAVA', 'UHV'] as SubjectCode[]).map((code) => (
+                        <option key={code} value={code} className="bg-black text-white">
+                          {code} — {SUBJECT_METADATA[code].name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* SYLLABUS SECTION PICKER ALONGSIDE SUBJECT */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-white/80">
+                      Select Syllabus Section (Unit 1 to 5)
+                    </label>
+                    <span className="text-[10px] font-mono text-white/40">
+                      Subject: {SUBJECT_METADATA[uploadSubject].name}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                    {SUBJECT_METADATA[uploadSubject].sections.map((sec) => {
+                      const isSelected = uploadUnit === sec.unit;
+                      return (
+                        <button
+                          key={sec.unit}
+                          type="button"
+                          onClick={() => handleSectionSelect(sec)}
+                          className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                            isSelected
+                              ? 'bg-white text-black border-white shadow-glow'
+                              : 'bg-pitch/60 border-white/15 text-white/70 hover:border-white/30 hover:bg-interactive'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between w-full mb-1">
+                            <span className="text-[10px] font-mono font-bold uppercase">
+                              Unit {sec.unit}
+                            </span>
+                            {isSelected && <Check className="w-3 h-3 text-black" />}
+                          </div>
+                          <span
+                            className={`text-[11px] font-medium line-clamp-2 leading-tight ${
+                              isSelected ? 'text-black' : 'text-white/90'
+                            }`}
+                          >
+                            {sec.title}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Specific Topic Description & Pages */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-medium text-white/70 mb-1">
+                      Syllabus Topic / Target Concepts
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. State Space Search, A*, Admissibility Proofs"
+                      value={uploadTopic}
+                      onChange={(e) => setUploadTopic(e.target.value)}
+                      className="w-full bg-pitch border border-white/15 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-white/70 mb-1">
+                      Total Pages
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={300}
+                      value={uploadPages}
+                      onChange={(e) => setUploadPages(Number(e.target.value))}
+                      className="w-full bg-pitch border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-white"
+                    />
+                  </div>
+                </div>
+
+                {/* Submit button */}
+                <div className="pt-2 flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || !uploadTitle.trim()}
+                    className="px-6 py-2.5 bg-white text-black text-xs font-bold rounded-xl hover:bg-white/90 active:scale-95 transition-all shadow-glow flex items-center gap-2 disabled:opacity-40"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Upload Syllabus to Room</span>
+                  </button>
+                </div>
+              </form>
             </div>
-            {/* Progress bar */}
-            <div className="w-full bg-white/10 h-1.5 rounded-full mt-3 overflow-hidden">
-              <div
-                className="bg-white h-full transition-all duration-500 rounded-full"
-                style={{ width: `${completionPercentage}%` }}
+
+            {/* Right side: Syllabus Sections Explorer Accordion */}
+            <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-white/10 lg:pl-8 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Layers className="w-4 h-4 text-white" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                    Syllabus Section Reference
+                  </h3>
+                </div>
+                <p className="text-[11px] text-white/40 mb-3">
+                  Curated curriculum units mapped to subjects for cohort study.
+                </p>
+
+                <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+                  {(['AI', 'ADS', 'DEVC', 'JAVA', 'UHV'] as SubjectCode[]).map((subjCode) => {
+                    const subj = SUBJECT_METADATA[subjCode];
+                    const isExpanded = expandedSyllabusSubject === subjCode;
+                    return (
+                      <div
+                        key={subjCode}
+                        className="rounded-xl border border-white/10 bg-pitch/60 overflow-hidden"
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedSyllabusSubject(isExpanded ? null : subjCode)
+                          }
+                          className="w-full p-2.5 flex items-center justify-between text-left hover:bg-white/5 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-white/10 text-white">
+                              {subj.code}
+                            </span>
+                            <span className="text-xs font-semibold text-white truncate max-w-[150px]">
+                              {subj.name}
+                            </span>
+                          </div>
+                          {isExpanded ? (
+                            <ChevronDown className="w-3.5 h-3.5 text-white/50" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5 text-white/50" />
+                          )}
+                        </button>
+
+                        {isExpanded && (
+                          <div className="p-2.5 pt-0 border-t border-white/5 space-y-1.5 mt-1">
+                            {subj.sections.map((sec) => (
+                              <div
+                                key={sec.unit}
+                                className="text-[10px] p-1.5 rounded-lg bg-surface border border-white/5"
+                              >
+                                <div className="font-semibold text-white/90">
+                                  Unit {sec.unit}: {sec.title}
+                                </div>
+                                <div className="text-white/40 mt-0.5 truncate">
+                                  {sec.topics.join(' • ')}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 3. SYLLABUS DIRECTORY & FILTER BAR */}
+        <section className="space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-base font-bold tracking-tight text-white">
+                Syllabus Document Library
+              </h2>
+              <p className="text-xs text-white/40">
+                {totalDocs === 0
+                  ? 'No documents uploaded yet. Add a syllabus PDF using the upload section above.'
+                  : `Showing ${filteredDocuments.length} of ${totalDocs} uploaded documents.`}
+              </p>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative min-w-[260px]">
+              <Search className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40" />
+              <input
+                type="text"
+                placeholder="Search by topic, unit or title..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-surface border border-white/10 rounded-2xl pl-9 pr-4 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-white/40 transition-colors"
               />
             </div>
           </div>
 
-          <div className="ios-glass-card p-5">
-            <span className="text-xs font-medium text-white/50 uppercase tracking-wider">
-              In Progress
-            </span>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold tracking-tight text-white">
-                {inProgressDocs}
-              </span>
-              <span className="text-xs text-white/40">active modules</span>
-            </div>
-            <div className="mt-3 text-[11px] text-white/40 flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-white/60" />
-              <span>Synchronized across devices</span>
-            </div>
-          </div>
-
-          <div className="ios-glass-card p-5">
-            <span className="text-xs font-medium text-white/50 uppercase tracking-wider">
-              Revision Needed
-            </span>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold tracking-tight text-white">
-                {revisionDocs}
-              </span>
-              <span className="text-xs text-white/40">marked for re-study</span>
-            </div>
-            <div className="mt-3 text-[11px] text-white/40 flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5 text-white/60" />
-              <span>Exam questions & proofs</span>
-            </div>
-          </div>
-
-          <div className="ios-glass-card p-5">
-            <span className="text-xs font-medium text-white/50 uppercase tracking-wider">
-              Study Rooms
-            </span>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold tracking-tight text-white">5</span>
-              <span className="text-xs text-white/40">Core subjects</span>
-            </div>
-            <div className="mt-3 text-[11px] text-white/40">
-              DEVC • ADS • AI • UHV • JAVA
-            </div>
-          </div>
-        </div>
-
-        {/* 3. FILTER BAR: SUBJECTS & UNITS & STATUS */}
-        <div className="space-y-4">
-          {/* SUBJECT TABS */}
+          {/* Subject Filter Pills with Syllabus Names */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
             <button
-              onClick={() => setSelectedSubject('ALL')}
+              onClick={() => setSelectedSubjectFilter('ALL')}
               className={`px-4 py-2 rounded-2xl text-xs font-medium transition-all whitespace-nowrap ${
-                selectedSubject === 'ALL'
+                selectedSubjectFilter === 'ALL'
                   ? 'bg-white text-black font-semibold shadow-glow'
                   : 'bg-surface border border-white/10 text-white/60 hover:text-white hover:bg-interactive'
               }`}
@@ -286,18 +518,21 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
             </button>
             {(['AI', 'ADS', 'DEVC', 'JAVA', 'UHV'] as SubjectCode[]).map((subj) => {
               const count = documents.filter((d) => d.subject === subj).length;
-              const isSelected = selectedSubject === subj;
+              const isSelected = selectedSubjectFilter === subj;
               return (
                 <button
                   key={subj}
-                  onClick={() => setSelectedSubject(subj)}
-                  className={`px-4 py-2 rounded-2xl text-xs font-medium transition-all whitespace-nowrap flex items-center gap-2 ${
+                  onClick={() => setSelectedSubjectFilter(subj)}
+                  className={`px-3.5 py-2 rounded-2xl text-xs font-medium transition-all whitespace-nowrap flex items-center gap-2 ${
                     isSelected
                       ? 'bg-white text-black font-semibold shadow-glow'
                       : 'bg-surface border border-white/10 text-white/60 hover:text-white hover:bg-interactive'
                   }`}
                 >
-                  <span>{subj}</span>
+                  <span className="font-mono font-bold">{subj}</span>
+                  <span className="text-white/60 text-[11px]">
+                    {SUBJECT_METADATA[subj].name}
+                  </span>
                   <span
                     className={`text-[10px] px-1.5 py-0.2 rounded-md ${
                       isSelected ? 'bg-black/10 text-black' : 'bg-white/10 text-white/60'
@@ -310,96 +545,74 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
             })}
           </div>
 
-          {/* UNIT & STATUS BAR & SEARCH */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-1">
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Unit Filters */}
-              <div className="flex items-center bg-surface border border-white/10 rounded-2xl p-1 text-xs">
+          {/* Unit & Status Filters */}
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <div className="flex items-center bg-surface border border-white/10 rounded-2xl p-1 text-xs">
+              <button
+                onClick={() => setSelectedUnitFilter('ALL')}
+                className={`px-3 py-1 rounded-xl transition-all ${
+                  selectedUnitFilter === 'ALL'
+                    ? 'bg-white text-black font-semibold'
+                    : 'text-white/50 hover:text-white'
+                }`}
+              >
+                All Units
+              </button>
+              {[1, 2, 3, 4, 5].map((u) => (
                 <button
-                  onClick={() => setSelectedUnit('ALL')}
+                  key={u}
+                  onClick={() => setSelectedUnitFilter(u)}
                   className={`px-3 py-1 rounded-xl transition-all ${
-                    selectedUnit === 'ALL'
+                    selectedUnitFilter === u
                       ? 'bg-white text-black font-semibold'
                       : 'text-white/50 hover:text-white'
                   }`}
                 >
-                  All Units
+                  Unit {u}
                 </button>
-                {[1, 2, 3, 4, 5].map((u) => (
-                  <button
-                    key={u}
-                    onClick={() => setSelectedUnit(u)}
-                    className={`px-3 py-1 rounded-xl transition-all ${
-                      selectedUnit === u
-                        ? 'bg-white text-black font-semibold'
-                        : 'text-white/50 hover:text-white'
-                    }`}
-                  >
-                    Unit {u}
-                  </button>
-                ))}
-              </div>
-
-              {/* Status Checklist Filter */}
-              <div className="flex items-center bg-surface border border-white/10 rounded-2xl p-1 text-xs">
-                {(
-                  [
-                    { key: 'ALL', label: 'All Status' },
-                    { key: 'IN_PROGRESS', label: 'In Progress' },
-                    { key: 'READ', label: 'Read' },
-                    { key: 'NEEDS_REVISION', label: 'Revision' },
-                    { key: 'UNREAD', label: 'Unread' },
-                  ] as const
-                ).map((st) => (
-                  <button
-                    key={st.key}
-                    onClick={() => setSelectedStatus(st.key)}
-                    className={`px-3 py-1 rounded-xl transition-all ${
-                      selectedStatus === st.key
-                        ? 'bg-white text-black font-semibold'
-                        : 'text-white/50 hover:text-white'
-                    }`}
-                  >
-                    {st.label}
-                  </button>
-                ))}
-              </div>
+              ))}
             </div>
 
-            {/* Search Input */}
-            <div className="relative min-w-[240px]">
-              <Search className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40" />
-              <input
-                type="text"
-                placeholder="Search topic or document..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-surface border border-white/10 rounded-2xl pl-9 pr-4 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-white/40 transition-colors"
-              />
+            <div className="flex items-center bg-surface border border-white/10 rounded-2xl p-1 text-xs">
+              {(
+                [
+                  { key: 'ALL', label: 'All Status' },
+                  { key: 'IN_PROGRESS', label: 'In Progress' },
+                  { key: 'READ', label: 'Completed' },
+                  { key: 'NEEDS_REVISION', label: 'Revision' },
+                  { key: 'UNREAD', label: 'Unread' },
+                ] as const
+              ).map((st) => (
+                <button
+                  key={st.key}
+                  onClick={() => setSelectedStatusFilter(st.key)}
+                  className={`px-3 py-1 rounded-xl transition-all ${
+                    selectedStatusFilter === st.key
+                      ? 'bg-white text-black font-semibold'
+                      : 'text-white/50 hover:text-white'
+                  }`}
+                >
+                  {st.label}
+                </button>
+              ))}
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* 4. DOCUMENT GRID */}
+        {/* 4. DOCUMENTS GRID OR EMPTY STATE */}
         {filteredDocuments.length === 0 ? (
-          <div className="ios-glass-card p-12 text-center flex flex-col items-center justify-center my-6">
-            <FileText className="w-10 h-10 text-white/20 mb-3" />
-            <h3 className="text-sm font-semibold text-white">No documents matched</h3>
+          <div className="ios-glass-card p-12 text-center flex flex-col items-center justify-center my-4">
+            <FolderOpen className="w-12 h-12 text-white/20 mb-3" />
+            <h3 className="text-sm font-semibold text-white">
+              {totalDocs === 0
+                ? 'No syllabus documents in this room yet'
+                : 'No documents match the current filters'}
+            </h3>
             <p className="text-xs text-white/40 max-w-sm mt-1">
-              Adjust your subject, unit, or status filters, or upload a new syllabus document for
-              this study room.
+              {totalDocs === 0
+                ? 'Select a PDF and choose a syllabus section in the upload section above to begin studying.'
+                : 'Try adjusting your subject or unit filters to view documents.'}
             </p>
-            <button
-              onClick={() => {
-                setSelectedSubject('ALL');
-                setSelectedUnit('ALL');
-                setSelectedStatus('ALL');
-                setSearchQuery('');
-              }}
-              className="mt-4 px-3.5 py-1.5 text-xs text-white/80 border border-white/15 rounded-xl hover:border-white/40 transition-colors"
-            >
-              Reset Filters
-            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -407,6 +620,7 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
               const currentStatus = doc.userProgress?.status || 'UNREAD';
               const statusCfg = STATUS_CONFIG[currentStatus];
               const bookmarksCount = doc.userProgress?.bookmarks?.length || 0;
+              const subjMeta = SUBJECT_METADATA[doc.subject];
 
               return (
                 <div
@@ -414,10 +628,10 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                   className="ios-glass-card p-6 flex flex-col justify-between group hover:border-white/30 transition-all duration-200"
                 >
                   <div>
-                    {/* Top row: Subject, Unit, Status Pill */}
+                    {/* Top Row: Subject Badge with Subject Name & Unit */}
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-lg bg-white/10 text-white border border-white/20">
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-white/10 text-white border border-white/20">
                           {doc.subject}
                         </span>
                         <span className="text-[11px] font-mono text-white/60">
@@ -425,7 +639,7 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                         </span>
                       </div>
 
-                      {/* Document Status Selector */}
+                      {/* Status Checklist Dropdown */}
                       <select
                         value={currentStatus}
                         onChange={(e) =>
@@ -448,12 +662,17 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                       </select>
                     </div>
 
+                    {/* Subject Full Name Header */}
+                    <div className="text-[11px] text-white/40 font-medium mb-1">
+                      {subjMeta?.name}
+                    </div>
+
                     {/* Document Title */}
                     <h2 className="text-sm font-semibold text-white tracking-tight group-hover:text-white transition-colors line-clamp-1">
                       {doc.title}
                     </h2>
 
-                    {/* Syllabus Topic description */}
+                    {/* Syllabus Topic */}
                     {doc.syllabusTopic && (
                       <p className="text-xs text-white/50 mt-1 line-clamp-2 leading-relaxed">
                         {doc.syllabusTopic}
@@ -461,7 +680,7 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                     )}
                   </div>
 
-                  {/* Bottom metrics and Action */}
+                  {/* Bottom Row */}
                   <div className="pt-5 mt-5 border-t border-white/10 flex items-center justify-between">
                     <div className="flex items-center gap-3 text-[11px] text-white/40">
                       <span className="font-mono">{doc.totalPages} pages</span>
@@ -471,21 +690,28 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                           <span>{bookmarksCount}</span>
                         </span>
                       )}
-                      {doc.annotationCount !== undefined && doc.annotationCount > 0 && (
-                        <span className="flex items-center gap-1">
-                          <MessageSquare className="w-3 h-3 text-white/60" />
-                          <span>{doc.annotationCount}</span>
-                        </span>
-                      )}
                     </div>
 
-                    <Link
-                      href={`/rooms/${roomInfo.id}/documents/${doc.id}`}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-interactive hover:bg-white hover:text-black border border-white/15 rounded-xl text-xs font-medium text-white transition-all active:scale-95 shadow-sm"
-                    >
-                      <span>Study & Annotate</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      {onDeleteDocument && (
+                        <button
+                          type="button"
+                          onClick={() => onDeleteDocument(doc.id)}
+                          className="p-1.5 text-white/30 hover:text-white rounded-lg transition-colors"
+                          title="Delete syllabus document"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
+                      <Link
+                        href={`/rooms/${roomInfo.id}/documents/${doc.id}`}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-interactive hover:bg-white hover:text-black border border-white/15 rounded-xl text-xs font-medium text-white transition-all active:scale-95 shadow-sm"
+                      >
+                        <span>Study & Annotate</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
                   </div>
                 </div>
               );
@@ -494,120 +720,10 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
         )}
       </main>
 
-      {/* 5. UPLOAD SYLLABUS MODAL */}
-      {isUploadOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-pitch/80 backdrop-blur-xl animate-fade-in">
-          <div className="ios-glass-panel w-full max-w-lg p-6 shadow-2xl animate-scale-up">
-            <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
-              <div className="flex items-center gap-2">
-                <Upload className="w-4 h-4 text-white" />
-                <h3 className="text-sm font-semibold text-white">Upload Syllabus Document</h3>
-              </div>
-              <button
-                onClick={() => setIsUploadOpen(false)}
-                className="text-white/40 hover:text-white transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleUploadSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-white/70 mb-1.5">
-                  Document Filename
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. AI_Unit_3_Adversarial_Search_Minimax.pdf"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  className="w-full bg-pitch border border-white/15 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-white"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-white/70 mb-1.5">
-                    Subject Code
-                  </label>
-                  <select
-                    value={newSubject}
-                    onChange={(e) => setNewSubject(e.target.value as SubjectCode)}
-                    className="w-full bg-pitch border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-white"
-                  >
-                    <option value="AI">AI — Artificial Intelligence</option>
-                    <option value="ADS">ADS — Adv. Data Structures</option>
-                    <option value="DEVC">DEVC — Dev & Cloud</option>
-                    <option value="JAVA">JAVA — Enterprise Java</option>
-                    <option value="UHV">UHV — Human Values</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-white/70 mb-1.5">
-                    Unit Number
-                  </label>
-                  <select
-                    value={newUnit}
-                    onChange={(e) => setNewUnit(Number(e.target.value))}
-                    className="w-full bg-pitch border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-white"
-                  >
-                    {[1, 2, 3, 4, 5].map((u) => (
-                      <option key={u} value={u}>
-                        Unit {u}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-white/70 mb-1.5">
-                  Syllabus Topic & Concepts
-                </label>
-                <textarea
-                  placeholder="e.g. Minimax, Alpha-Beta Pruning, Game Trees, Evaluation Functions"
-                  value={newTopic}
-                  onChange={(e) => setNewTopic(e.target.value)}
-                  rows={2}
-                  className="w-full bg-pitch border border-white/15 rounded-xl p-3 text-xs text-white placeholder-white/30 resize-none focus:outline-none focus:border-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-white/70 mb-1.5">
-                  Total Document Pages
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={200}
-                  value={newPages}
-                  onChange={(e) => setNewPages(Number(e.target.value))}
-                  className="w-full bg-pitch border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-white"
-                />
-              </div>
-
-              <div className="pt-3 border-t border-white/10 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsUploadOpen(false)}
-                  className="px-3.5 py-2 text-xs text-white/50 hover:text-white transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-white text-black text-xs font-semibold rounded-xl hover:bg-white/90 active:scale-95 transition-all shadow-glow"
-                >
-                  Save & Publish to Room
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* 5. FOOTER */}
+      <footer className="w-full border-t border-white/10 py-6 px-6 text-center text-xs text-white/30 font-mono">
+        SYLLABI • COLLABORATIVE MONOCHROME ARCHITECTURE
+      </footer>
     </div>
   );
 };

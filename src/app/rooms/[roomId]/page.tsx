@@ -16,6 +16,7 @@ export default function RoomPage() {
     isConnected,
     updateDocumentStatus,
     addDocument,
+    deleteDocument,
   } = useSupabaseRoom(roomId);
 
   return (
@@ -26,6 +27,7 @@ export default function RoomPage() {
       isConnected={isConnected}
       onStatusChange={updateDocumentStatus}
       onAddDocument={addDocument}
+      onDeleteDocument={deleteDocument}
     />
   );
 }
