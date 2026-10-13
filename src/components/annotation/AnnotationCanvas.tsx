@@ -159,6 +159,9 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   // Pointer Down
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!canEdit || activeTool === 'select') return;
+    if (isTouchMode && e.pointerType === 'mouse' && activeTool !== 'pen' && activeTool !== 'highlighter') {
+      return;
+    }
     const pt = getNormalizedPoint(e.clientX, e.clientY);
     if (!pt) return;
 
@@ -317,9 +320,10 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
   };
 
   const getCursorClass = () => {
+    if (activeTool === 'select' || (isTouchMode && activeTool !== 'pen' && activeTool !== 'highlighter')) {
+      return 'cursor-grab pointer-events-none';
+    }
     switch (activeTool) {
-      case 'select':
-        return 'cursor-default pointer-events-none';
       case 'pen':
       case 'highlighter':
         return 'cursor-crosshair pointer-events-auto';
@@ -328,7 +332,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       case 'note':
         return 'cursor-text pointer-events-auto';
       default:
-        return 'cursor-default';
+        return 'cursor-default pointer-events-none';
     }
   };
 

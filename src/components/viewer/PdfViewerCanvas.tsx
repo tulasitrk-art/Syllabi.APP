@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { getPdfBlob } from '@/lib/pdfStorage';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 interface PdfViewerCanvasProps {
   docId: string;
@@ -38,7 +38,6 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
       setError(null);
 
       try {
-        // Dynamically import pdfjs-dist in client
         const pdfjsLib = await import('pdfjs-dist');
 
         if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
@@ -61,7 +60,6 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
         }
 
         if (!buffer) {
-          // If no PDF binary was uploaded, don't crash
           setLoading(false);
           return;
         }
@@ -121,13 +119,21 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
           try {
             renderTaskRef.current.cancel();
           } catch {
-            // ignore cancellation error
+            // ignore cancellation
           }
         }
 
+        // Get natural unscaled page dimensions
+        const baseViewport = page.getViewport({ scale: 1.0 });
+
+        if (onDimensionsChange && !isCancelled) {
+          onDimensionsChange(baseViewport.width, baseViewport.height);
+        }
+
+        // High resolution render scale for crisp text without clipping
         const dpr = window.devicePixelRatio || 1;
-        const baseViewport = page.getViewport({ scale: 1.5 });
-        const viewport = page.getViewport({ scale: 1.5 * zoomScale });
+        const renderScale = 2.0; // Sharp crisp bitmap rendering
+        const viewport = page.getViewport({ scale: renderScale });
 
         canvas.width = Math.floor(viewport.width * dpr);
         canvas.height = Math.floor(viewport.height * dpr);
@@ -147,10 +153,6 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
 
         await task.promise;
         ctx.restore();
-
-        if (onDimensionsChange && !isCancelled) {
-          onDimensionsChange(viewport.width, viewport.height);
-        }
       } catch (err: any) {
         if (err?.name !== 'RenderingCancelledException') {
           console.warn('Page render error:', err);
@@ -170,7 +172,7 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
         }
       }
     };
-  }, [pdfDoc, currentPage, zoomScale, onDimensionsChange]);
+  }, [pdfDoc, currentPage, onDimensionsChange]);
 
   if (loading) {
     return (
@@ -182,14 +184,14 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
   }
 
   if (error || !pdfDoc) {
-    return null; // Let the DocumentViewer fallback syllabus page render seamlessly
+    return null;
   }
 
   return (
     <div className={`relative w-full h-full flex items-center justify-center bg-white ${className}`}>
       <canvas
         ref={canvasRef}
-        className="w-full h-full object-contain select-none block"
+        className="w-full h-full select-none block"
       />
     </div>
   );
