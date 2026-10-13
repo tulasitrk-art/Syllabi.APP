@@ -35,6 +35,7 @@ import {
   Check,
   Minimize2,
   Move,
+  Trash2,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -43,6 +44,7 @@ interface DocumentViewerProps {
   roomId: string;
   onStatusChange?: (status: DocumentStatus) => void;
   onAddBookmark?: (pageNumber: number, title: string) => void;
+  onDeleteDocument?: () => void;
 }
 
 const PALETTE_COLORS = [
@@ -59,6 +61,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   roomId,
   onStatusChange,
   onAddBookmark,
+  onDeleteDocument,
 }) => {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(doc.totalPages || 1);
@@ -260,6 +263,21 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             </span>
           </button>
 
+          {/* PERMANENT DELETE BUTTON */}
+          {onDeleteDocument && (
+            <button
+              onClick={() => {
+                if (window.confirm(`Permanently delete "${doc.title}"? This cannot be undone.`)) {
+                  onDeleteDocument();
+                }
+              }}
+              className="p-1.5 text-white/40 hover:text-red-400 rounded-xl hover:bg-white/5 border border-transparent hover:border-red-500/30 transition-colors"
+              title="Permanently delete document"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+
           {/* THEME TOGGLE */}
           <ThemeToggle />
         </div>
@@ -296,6 +314,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
               currentPage={currentPage}
               zoomScale={zoomScale}
               onDimensionsChange={handleDimensionsChange}
+              onDeleteDocument={onDeleteDocument}
               onPagesDetected={(detected) => {
                 if (detected > 0 && detected !== totalPages) {
                   setTotalPages(detected);

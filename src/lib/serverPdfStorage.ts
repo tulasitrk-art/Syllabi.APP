@@ -70,3 +70,20 @@ export function getPdfFromDisk(docId: string): Buffer | null {
   }
   return null;
 }
+
+export function deleteDocFromDisk(docId: string) {
+  try {
+    ensureStorageReady();
+    // 1. Remove from documents index
+    memoryDocsCache = memoryDocsCache.filter((d) => d.id !== docId);
+    fs.writeFileSync(DOCS_INDEX_FILE, JSON.stringify(memoryDocsCache, null, 2));
+
+    // 2. Remove PDF file from disk
+    const filePath = path.join(PDFS_DIR, `${docId}.pdf`);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (err) {
+    console.warn('Could not delete doc from disk:', err);
+  }
+}

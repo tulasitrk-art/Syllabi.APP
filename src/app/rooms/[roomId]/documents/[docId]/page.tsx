@@ -17,6 +17,7 @@ export default function DocumentStudioPage() {
     documents,
     updateDocumentStatus,
     addBookmark,
+    deleteDocument,
   } = useSupabaseRoom(roomId);
 
   const [directDoc, setDirectDoc] = useState<DocumentWithProgress | null>(null);
@@ -24,6 +25,13 @@ export default function DocumentStudioPage() {
 
   // Check from room state first
   const doc = documents.find((d) => d.id === docId) || directDoc;
+
+  const handleDeleteAndExit = async () => {
+    if (doc) {
+      await deleteDocument(doc.id);
+      window.location.href = `/rooms/${roomId}`;
+    }
+  };
 
   useEffect(() => {
     let isCancelled = false;
@@ -109,6 +117,7 @@ export default function DocumentStudioPage() {
       roomId={roomId}
       onStatusChange={(status) => updateDocumentStatus(doc.id, status)}
       onAddBookmark={(page, title) => addBookmark(doc.id, page, title)}
+      onDeleteDocument={handleDeleteAndExit}
     />
   );
 }

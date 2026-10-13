@@ -5,6 +5,7 @@ import {
   getDocsIndex,
   saveDocsIndex,
   savePdfToDisk,
+  deleteDocFromDisk,
 } from '@/lib/serverPdfStorage';
 
 // GET /api/documents?roomId=...
@@ -185,4 +186,49 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// DELETE /api/documents?id=...
+export async function DELETE(request: NextRequest) {
+  ensureStorageReady();
+  const searchParams = request.nextUrl.searchParams;
+  let docId = searchParams.get('id');
+
+  if (!docId) {
+    try {
+      const body = await request.json();
+      docId = body?.id;
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!docId) {
+    return NextResponse.json({ error: 'Missing document id' }, { status: 400 });
+  }
+
+  // 1. Permanently delete from universal server store and disk
+  deleteDocFromDisk(docId);
+
+  // 2. If Supabase is configured, delete from Supabase database
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (supabaseUrl && supabaseUrl !== 'https://mock.supabase.co' && supabaseKey) {
+    try {
+      const supabase = createServerClient(supabaseUrl, supabaseKey, {
+        cookies: {
+          get() { return ''; },
+          set() {},
+          remove() {},
+        },
+      });
+
+      await supabase.from('documents').delete().eq('id', docId);
+    } catch (err) {
+      console.warn('Supabase DB delete warning:', err);
+    }
+  }
+
+  return NextResponse.json({ success: true, deletedId: docId });
 }

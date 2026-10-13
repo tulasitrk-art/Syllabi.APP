@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
   DocumentWithProgress,
@@ -9,7 +9,7 @@ import {
   Bookmark,
 } from '@/types/syllabi';
 import { DocumentStatus, SubjectCode } from '@/types/database';
-import { savePdfBlob } from '@/lib/pdfStorage';
+import { savePdfBlob, deletePdfBlob } from '@/lib/pdfStorage';
 
 export function useSupabaseRoom(roomId: string) {
   const supabase = useMemo(() => createClient(), []);
@@ -37,6 +37,9 @@ export function useSupabaseRoom(roomId: string) {
 
   const [isConnected, setIsConnected] = useState<boolean>(true);
 
+  // Set of permanently deleted document IDs to prevent background polling resurrection
+  const deletedDocIdsRef = useRef<Set<string>>(new Set());
+
   // Check if live Supabase configuration is present
   const isSupabaseConfigured = Boolean(
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -54,22 +57,28 @@ export function useSupabaseRoom(roomId: string) {
     }
   }, [roomId]);
 
-  // Merge helper: combines server and local documents without duplicates
+  // Merge helper: combines server and local documents without duplicates and filters out deleted
   const mergeDocuments = useCallback(
     (existing: DocumentWithProgress[], incoming: DocumentWithProgress[]) => {
       const map = new Map<string, DocumentWithProgress>();
-      // Put incoming first
-      incoming.forEach((doc) => map.set(doc.id, doc));
-      // Overlay with existing (which may have local user progress)
-      existing.forEach((doc) => {
-        if (map.has(doc.id)) {
-          const inc = map.get(doc.id)!;
-          map.set(doc.id, {
-            ...inc,
-            userProgress: doc.userProgress || inc.userProgress,
-          });
-        } else {
+      // Put incoming first, skipping permanently deleted
+      incoming.forEach((doc) => {
+        if (!deletedDocIdsRef.current.has(doc.id)) {
           map.set(doc.id, doc);
+        }
+      });
+      // Overlay with existing
+      existing.forEach((doc) => {
+        if (!deletedDocIdsRef.current.has(doc.id)) {
+          if (map.has(doc.id)) {
+            const inc = map.get(doc.id)!;
+            map.set(doc.id, {
+              ...inc,
+              userProgress: doc.userProgress || inc.userProgress,
+            });
+          } else {
+            map.set(doc.id, doc);
+          }
         }
       });
       return Array.from(map.values()).sort(
@@ -98,16 +107,26 @@ export function useSupabaseRoom(roomId: string) {
     }
   }, [roomId, mergeDocuments, syncToLocalStorage]);
 
-  // Initial load: 1. LocalStorage -> 2. Universal API -> 3. Supabase
+  // Initial load: 1. Deleted IDs -> 2. LocalStorage -> 3. Universal API
   useEffect(() => {
-    // 1. Instant load from local storage
     if (typeof window !== 'undefined') {
       try {
+        // Load tombstone deleted IDs
+        const storedDeleted = localStorage.getItem(`syllabi_deleted_${roomId}`);
+        if (storedDeleted) {
+          const parsed = JSON.parse(storedDeleted);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((id: string) => deletedDocIdsRef.current.add(id));
+          }
+        }
+
+        // Instant load from local storage
         const stored = localStorage.getItem(`syllabi_docs_${roomId}`);
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setDocuments(parsed);
+            const filtered = parsed.filter((d: any) => !deletedDocIdsRef.current.has(d.id));
+            setDocuments(filtered);
           }
         }
       } catch (e) {
@@ -115,10 +134,10 @@ export function useSupabaseRoom(roomId: string) {
       }
     }
 
-    // 2. Fetch from shared server API
+    // Fetch from shared server API
     fetchUniversalDocuments();
 
-    // 3. Periodic background polling so all online users see new uploads automatically
+    // Periodic background polling
     const pollInterval = setInterval(() => {
       fetchUniversalDocuments();
     }, 5000);
@@ -381,15 +400,18 @@ export function useSupabaseRoom(roomId: string) {
 
       // 3. Immediately cache binary in local IndexedDB for instant 0ms uploader experience
       if (payload.buffer && createdDoc) {
-        await savePdfBlob(createdDoc.id, payload.buffer);
+        await savePdfBlob(createdDoc.id, payload.buffer.slice(0));
       } else if (payload.file && createdDoc) {
         try {
           const buf = await payload.file.arrayBuffer();
-          await savePdfBlob(createdDoc.id, buf);
+          await savePdfBlob(createdDoc.id, buf.slice(0));
         } catch {
           // ignore
         }
       }
+
+      // Remove from tombstone set if re-uploaded
+      deletedDocIdsRef.current.delete(createdDoc.id);
 
       // 4. Update local state & storage
       setDocuments((prev) => {
@@ -422,15 +444,41 @@ export function useSupabaseRoom(roomId: string) {
     [roomId, isSupabaseConfigured, supabase, syncToLocalStorage]
   );
 
-  // Delete a document
+  // Permanently delete a document across memory, localStorage, IndexedDB, and server storage
   const deleteDocument = useCallback(
     async (documentId: string) => {
+      // 1. Mark in tombstone set to prevent polling revival
+      deletedDocIdsRef.current.add(documentId);
+      if (typeof window !== 'undefined') {
+        try {
+          const currentDeleted = JSON.parse(
+            localStorage.getItem(`syllabi_deleted_${roomId}`) || '[]'
+          );
+          localStorage.setItem(
+            `syllabi_deleted_${roomId}`,
+            JSON.stringify(Array.from(new Set([...currentDeleted, documentId])))
+          );
+        } catch {
+          // ignore
+        }
+      }
+
+      // 2. Remove immediately from local state & storage
       setDocuments((prev) => {
         const next = prev.filter((d) => d.id !== documentId);
         syncToLocalStorage(next);
         return next;
       });
 
+      // 3. Permanently remove from client IndexedDB
+      deletePdfBlob(documentId).catch(() => {});
+
+      // 4. Permanently remove from server storage API
+      fetch(`/api/documents?id=${encodeURIComponent(documentId)}`, {
+        method: 'DELETE',
+      }).catch((e) => console.warn('Server delete error:', e));
+
+      // 5. Delete from Supabase if configured
       if (isSupabaseConfigured) {
         try {
           await (supabase.from('documents') as any).delete().eq('id', documentId);
@@ -439,7 +487,7 @@ export function useSupabaseRoom(roomId: string) {
         }
       }
     },
-    [isSupabaseConfigured, supabase, syncToLocalStorage]
+    [roomId, isSupabaseConfigured, supabase, syncToLocalStorage]
   );
 
   return {
