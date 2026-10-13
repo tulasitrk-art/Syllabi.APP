@@ -138,7 +138,7 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
     }
 
     try {
-      const createdDoc = await onAddDocument({
+      await onAddDocument({
         title: uploadTitle.trim().endsWith('.pdf') ? uploadTitle.trim() : `${uploadTitle.trim()}.pdf`,
         subject: uploadSubject,
         unit: Number(uploadUnit),
@@ -147,11 +147,6 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
         file: uploadedFile,
         buffer: bufferToStore,
       });
-
-      // Persist binary in IndexedDB for zero-buffering instant rendering
-      if (createdDoc && bufferToStore) {
-        await savePdfBlob(createdDoc.id, bufferToStore);
-      }
 
       // Reset form
       setUploadTitle('');

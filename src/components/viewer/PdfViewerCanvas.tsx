@@ -16,7 +16,6 @@ interface PdfViewerCanvasProps {
 
 // In-memory global buffer cache for instant zero-latency page turns and re-opens
 const memoryBufferCache = new Map<string, ArrayBuffer>();
-const memoryDocProxyCache = new Map<string, any>();
 
 export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
   docId,
@@ -38,19 +37,6 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
     let isCancelled = false;
 
     async function loadPdf() {
-      // 0. Check in-memory doc proxy cache first
-      if (memoryDocProxyCache.has(docId)) {
-        const cachedDoc = memoryDocProxyCache.get(docId);
-        if (!isCancelled) {
-          setPdfDoc(cachedDoc);
-          setLoading(false);
-          if (onPagesDetected && cachedDoc.numPages > 0) {
-            onPagesDetected(cachedDoc.numPages);
-          }
-          return;
-        }
-      }
-
       setLoading(true);
       setError(null);
 
@@ -62,12 +48,19 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
           pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
         }
 
-        // 1. Try memory buffer cache
+        // 1. Try memory buffer cache (validate byteLength to avoid detached ArrayBuffers)
         let buffer: ArrayBuffer | null = memoryBufferCache.get(docId) || null;
+        if (buffer && buffer.byteLength === 0) {
+          memoryBufferCache.delete(docId);
+          buffer = null;
+        }
 
         // 2. Try IndexedDB local storage
         if (!buffer) {
           buffer = await getPdfBlob(docId);
+          if (buffer && buffer.byteLength === 0) {
+            buffer = null;
+          }
         }
 
         // 3. If not locally cached, fetch from server API route
@@ -76,11 +69,12 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
           try {
             const resp = await fetch(fetchUrl);
             if (resp.ok) {
-              buffer = await resp.arrayBuffer();
-              // Cache to memory and IndexedDB for all future instant loads
-              if (buffer) {
-                memoryBufferCache.set(docId, buffer);
-                savePdfBlob(docId, buffer).catch(() => {});
+              const fetchedBuffer = await resp.arrayBuffer();
+              if (fetchedBuffer && fetchedBuffer.byteLength > 0) {
+                buffer = fetchedBuffer;
+                // Cache pristine copy to memory and IndexedDB
+                memoryBufferCache.set(docId, buffer.slice(0));
+                savePdfBlob(docId, buffer.slice(0)).catch(() => {});
               }
             }
           } catch (e) {
@@ -88,7 +82,7 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
           }
         }
 
-        if (!buffer) {
+        if (!buffer || buffer.byteLength === 0) {
           if (!isCancelled) {
             setLoading(false);
             setError('PDF document file not yet loaded or processing.');
@@ -96,12 +90,15 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
           return;
         }
 
-        // Cache into RAM
-        memoryBufferCache.set(docId, buffer);
+        // Cache safe clone in RAM
+        memoryBufferCache.set(docId, buffer.slice(0));
 
-        // Load document through PDF.js
+        // CRITICAL FIX: ALWAYS pass a fresh slice/clone to PDF.js.
+        // Web Worker transfer detaches the passed ArrayBuffer, so cloning preserves the cached copy!
+        const dataForWorker = new Uint8Array(buffer.slice(0));
+
         const loadingTask = pdfjsLib.getDocument({
-          data: new Uint8Array(buffer),
+          data: dataForWorker,
           cMapPacked: true,
         });
 
@@ -109,7 +106,6 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
 
         if (isCancelled) return;
 
-        memoryDocProxyCache.set(docId, doc);
         setPdfDoc(doc);
         setLoading(false);
 
@@ -119,6 +115,8 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
       } catch (err: any) {
         if (!isCancelled) {
           console.error('PDF loading failed:', err);
+          // If detached or failed, purge invalid cache entry
+          memoryBufferCache.delete(docId);
           setError(err?.message || 'Failed to load PDF');
           setLoading(false);
         }
@@ -220,7 +218,6 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
         <button
           onClick={() => {
             memoryBufferCache.delete(docId);
-            memoryDocProxyCache.delete(docId);
             window.location.reload();
           }}
           className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs flex items-center gap-1.5 transition-colors"

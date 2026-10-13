@@ -30,10 +30,18 @@ export async function savePdfBlob(docId: string, data: ArrayBuffer | Blob): Prom
     const db = await openDB();
     const arrayBuffer = data instanceof Blob ? await data.arrayBuffer() : data;
 
+    if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+      console.warn('Cannot save empty or detached ArrayBuffer to IndexedDB');
+      return;
+    }
+
+    // Always store a clone so callers retain intact buffers
+    const bufferToSave = arrayBuffer.slice(0);
+
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
-      const req = store.put(arrayBuffer, docId);
+      const req = store.put(bufferToSave, docId);
 
       req.onsuccess = () => resolve();
       req.onerror = () => reject(req.error);
@@ -53,8 +61,9 @@ export async function getPdfBlob(docId: string): Promise<ArrayBuffer | null> {
       const req = store.get(docId);
 
       req.onsuccess = () => {
-        if (req.result) {
-          resolve(req.result as ArrayBuffer);
+        if (req.result && (req.result as ArrayBuffer).byteLength > 0) {
+          // Always return a fresh slice so worker transfers do not affect IndexedDB
+          resolve((req.result as ArrayBuffer).slice(0));
         } else {
           resolve(null);
         }
@@ -87,7 +96,8 @@ export async function deletePdfBlob(docId: string): Promise<void> {
 // Fast lightweight page count parser as instant zero-lag fallback
 export function extractPdfPageCountFromBuffer(buffer: ArrayBuffer): number {
   try {
-    const text = new TextDecoder('latin1').decode(new Uint8Array(buffer));
+    if (!buffer || buffer.byteLength === 0) return 1;
+    const text = new TextDecoder('latin1').decode(new Uint8Array(buffer.slice(0, Math.min(buffer.byteLength, 500000))));
     // Look for /Type /Pages /Count N
     const pageMatches = text.match(/\/Type\s*\/Pages[^>]*\/Count\s+(\d+)/);
     if (pageMatches && pageMatches[1]) {
