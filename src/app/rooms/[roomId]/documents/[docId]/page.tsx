@@ -1,10 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useSupabaseRoom } from '@/hooks/useSupabaseRoom';
 import { DocumentViewer } from '@/components/viewer/DocumentViewer';
-import { ArrowLeft, FileQuestion } from 'lucide-react';
+import { DocumentWithProgress } from '@/types/syllabi';
+import { ArrowLeft, FileQuestion, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
 export default function DocumentStudioPage() {
@@ -18,8 +19,68 @@ export default function DocumentStudioPage() {
     addBookmark,
   } = useSupabaseRoom(roomId);
 
-  const doc = documents.find((d) => d.id === docId);
+  const [directDoc, setDirectDoc] = useState<DocumentWithProgress | null>(null);
+  const [isChecking, setIsChecking] = useState<boolean>(true);
 
+  // Check from room state first
+  const doc = documents.find((d) => d.id === docId) || directDoc;
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function checkDirectDocument() {
+      if (doc) {
+        setIsChecking(false);
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/documents?roomId=${encodeURIComponent(roomId)}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json?.documents)) {
+            const found = json.documents.find((d: any) => d.id === docId);
+            if (found && !isCancelled) {
+              setDirectDoc(found);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Direct document check error:', err);
+      } finally {
+        if (!isCancelled) {
+          setIsChecking(false);
+        }
+      }
+    }
+
+    // Give a brief window for local documents to hydrate before initiating network check
+    const timeout = setTimeout(() => {
+      checkDirectDocument();
+    }, 150);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [docId, roomId, doc]);
+
+  // Loading state while checking document availability
+  if (isChecking && !doc) {
+    return (
+      <div className="min-h-screen bg-pitch text-white flex flex-col items-center justify-center p-6 text-center">
+        <div className="ios-glass-card p-8 max-w-sm w-full flex flex-col items-center">
+          <Loader2 className="w-8 h-8 animate-spin text-white mb-3" />
+          <h2 className="text-sm font-semibold text-white">Opening Syllabus Document</h2>
+          <p className="text-xs text-white/40 mt-1">
+            Loading document structure & peer annotations...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Not found fallback
   if (!doc) {
     return (
       <div className="min-h-screen bg-pitch text-white flex flex-col items-center justify-center p-6 text-center">

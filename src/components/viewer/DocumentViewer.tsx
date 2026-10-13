@@ -278,6 +278,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
       >
         {/* DOCUMENT CONTAINER (Exact Real Page Dimensions — Never Cropped) */}
         <div
+          onMouseDown={handleStageMouseDown}
           style={{
             width: `${displayWidth}px`,
             height: `${displayHeight}px`,
@@ -341,7 +342,11 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           </div>
 
           {/* DYNAMIC ANNOTATION LAYER (z-10): TRANSPARENT OVERLAY RULE */}
-          <div className="absolute inset-0 z-10 pointer-events-auto">
+          <div className={`absolute inset-0 z-10 ${
+            activeTool === 'select' || (isTouchMode && activeTool !== 'pen' && activeTool !== 'highlighter')
+              ? 'pointer-events-none'
+              : 'pointer-events-auto'
+          }`}>
             <AnnotationCanvas
               pageNumber={currentPage}
               initialGeometry={pageGeometries[currentPage]}

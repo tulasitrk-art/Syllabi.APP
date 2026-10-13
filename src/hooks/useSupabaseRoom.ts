@@ -9,11 +9,11 @@ import {
   Bookmark,
 } from '@/types/syllabi';
 import { DocumentStatus, SubjectCode } from '@/types/database';
+import { savePdfBlob } from '@/lib/pdfStorage';
 
 export function useSupabaseRoom(roomId: string) {
   const supabase = useMemo(() => createClient(), []);
-  
-  // No default mock PDFs - clean slate ready for student uploads
+
   const [documents, setDocuments] = useState<DocumentWithProgress[]>([]);
   const [roomInfo, setRoomInfo] = useState<StudyRoomSummary>({
     id: roomId,
@@ -25,7 +25,7 @@ export function useSupabaseRoom(roomId: string) {
     documentCount: 0,
     userRole: 'owner',
   });
-  
+
   const [activePresences, setActivePresences] = useState<UserPresence[]>([
     {
       userId: 'usr-current',
@@ -34,8 +34,8 @@ export function useSupabaseRoom(roomId: string) {
       lastSeen: new Date().toISOString(),
     },
   ]);
-  
-  const [isConnected, setIsConnected] = useState<boolean>(false);
+
+  const [isConnected, setIsConnected] = useState<boolean>(true);
 
   // Check if live Supabase configuration is present
   const isSupabaseConfigured = Boolean(
@@ -43,24 +43,7 @@ export function useSupabaseRoom(roomId: string) {
     process.env.NEXT_PUBLIC_SUPABASE_URL !== 'https://mock.supabase.co'
   );
 
-  // Load local persistent documents if offline / no supabase
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem(`syllabi_docs_${roomId}`);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed)) {
-            setDocuments(parsed);
-          }
-        }
-      } catch (e) {
-        console.warn('Could not read stored documents:', e);
-      }
-    }
-  }, [roomId]);
-
-  // Sync to local storage
+  // Sync documents array to local storage for instant offline read
   const syncToLocalStorage = useCallback((docs: DocumentWithProgress[]) => {
     if (typeof window !== 'undefined') {
       try {
@@ -71,7 +54,79 @@ export function useSupabaseRoom(roomId: string) {
     }
   }, [roomId]);
 
-  // Initial fetch and Realtime channel setup
+  // Merge helper: combines server and local documents without duplicates
+  const mergeDocuments = useCallback(
+    (existing: DocumentWithProgress[], incoming: DocumentWithProgress[]) => {
+      const map = new Map<string, DocumentWithProgress>();
+      // Put incoming first
+      incoming.forEach((doc) => map.set(doc.id, doc));
+      // Overlay with existing (which may have local user progress)
+      existing.forEach((doc) => {
+        if (map.has(doc.id)) {
+          const inc = map.get(doc.id)!;
+          map.set(doc.id, {
+            ...inc,
+            userProgress: doc.userProgress || inc.userProgress,
+          });
+        } else {
+          map.set(doc.id, doc);
+        }
+      });
+      return Array.from(map.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+    },
+    []
+  );
+
+  // Fetch from Universal Server API route (/api/documents)
+  const fetchUniversalDocuments = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/documents?roomId=${encodeURIComponent(roomId)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (Array.isArray(json?.documents)) {
+          setDocuments((prev) => {
+            const merged = mergeDocuments(prev, json.documents);
+            syncToLocalStorage(merged);
+            return merged;
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Could not poll universal documents API:', err);
+    }
+  }, [roomId, mergeDocuments, syncToLocalStorage]);
+
+  // Initial load: 1. LocalStorage -> 2. Universal API -> 3. Supabase
+  useEffect(() => {
+    // 1. Instant load from local storage
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(`syllabi_docs_${roomId}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setDocuments(parsed);
+          }
+        }
+      } catch (e) {
+        console.warn('Local storage read error:', e);
+      }
+    }
+
+    // 2. Fetch from shared server API
+    fetchUniversalDocuments();
+
+    // 3. Periodic background polling so all online users see new uploads automatically
+    const pollInterval = setInterval(() => {
+      fetchUniversalDocuments();
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [roomId, fetchUniversalDocuments]);
+
+  // Supabase Realtime channel setup (when Supabase credentials exist)
   useEffect(() => {
     if (!isSupabaseConfigured) {
       setIsConnected(true);
@@ -82,7 +137,6 @@ export function useSupabaseRoom(roomId: string) {
 
     async function fetchRoomData() {
       try {
-        // Fetch Room metadata
         const { data: roomData } = await (supabase
           .from('study_rooms')
           .select('*')
@@ -100,13 +154,9 @@ export function useSupabaseRoom(roomId: string) {
           }));
         }
 
-        // Fetch Documents
         const { data: docsData } = await (supabase
           .from('documents')
-          .select(`
-            *,
-            user_document_progress(*)
-          `)
+          .select(`*, user_document_progress(*)`)
           .eq('room_id', roomId)
           .order('created_at', { ascending: false }) as any);
 
@@ -132,8 +182,12 @@ export function useSupabaseRoom(roomId: string) {
                 : undefined,
             };
           });
-          setDocuments(mapped);
-          syncToLocalStorage(mapped);
+
+          setDocuments((prev) => {
+            const merged = mergeDocuments(prev, mapped);
+            syncToLocalStorage(merged);
+            return merged;
+          });
         }
       } catch (err) {
         console.warn('Supabase fetch fallback:', err);
@@ -142,7 +196,6 @@ export function useSupabaseRoom(roomId: string) {
 
     fetchRoomData();
 
-    // Subscribe to Realtime Postgres Changes
     const channel = supabase
       .channel(`room:${roomId}`)
       .on(
@@ -169,7 +222,7 @@ export function useSupabaseRoom(roomId: string) {
       isMounted = false;
       supabase.removeChannel(channel);
     };
-  }, [roomId, supabase, isSupabaseConfigured, syncToLocalStorage]);
+  }, [roomId, supabase, isSupabaseConfigured, mergeDocuments, syncToLocalStorage]);
 
   // Update document status checklist
   const updateDocumentStatus = useCallback(
@@ -262,7 +315,7 @@ export function useSupabaseRoom(roomId: string) {
     [documents, isSupabaseConfigured, supabase, syncToLocalStorage]
   );
 
-  // Upload or register a new document
+  // Upload or register a new document to shared server & local store
   const addDocument = useCallback(
     async (payload: {
       title: string;
@@ -271,50 +324,100 @@ export function useSupabaseRoom(roomId: string) {
       syllabusTopic: string;
       totalPages?: number;
       fileUrl?: string;
-    }) => {
-      const newDoc: DocumentWithProgress = {
-        id: `doc_${Date.now()}`,
-        roomId,
-        uploadedBy: 'current-user',
-        title: payload.title,
-        subject: payload.subject,
-        unit: payload.unit,
-        syllabusTopic: payload.syllabusTopic,
-        fileUrl: payload.fileUrl || '',
-        totalPages: payload.totalPages || 1,
-        createdAt: new Date().toISOString(),
-        userProgress: {
-          status: 'UNREAD',
-          bookmarks: [],
-        },
-        annotationCount: 0,
-      };
+      file?: File | null;
+      buffer?: ArrayBuffer | null;
+    }): Promise<DocumentWithProgress> => {
+      let createdDoc: DocumentWithProgress | null = null;
 
+      // 1. Upload to shared universal API route with file
+      if (payload.file) {
+        try {
+          const formData = new FormData();
+          formData.append('file', payload.file);
+          formData.append('title', payload.title);
+          formData.append('subject', payload.subject);
+          formData.append('unit', String(payload.unit));
+          formData.append('syllabusTopic', payload.syllabusTopic);
+          formData.append('totalPages', String(payload.totalPages || 1));
+          formData.append('roomId', roomId);
+
+          const res = await fetch('/api/documents', {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.document) {
+              createdDoc = data.document;
+            }
+          }
+        } catch (err) {
+          console.warn('Universal upload API warning:', err);
+        }
+      }
+
+      // 2. Fallback creation if offline or direct
+      if (!createdDoc) {
+        const docId = `doc_${Date.now()}`;
+        createdDoc = {
+          id: docId,
+          roomId,
+          uploadedBy: 'current-user',
+          title: payload.title,
+          subject: payload.subject,
+          unit: payload.unit,
+          syllabusTopic: payload.syllabusTopic,
+          fileUrl: payload.fileUrl || `/api/documents/${docId}/file`,
+          totalPages: payload.totalPages || 1,
+          createdAt: new Date().toISOString(),
+          userProgress: {
+            status: 'UNREAD',
+            bookmarks: [],
+          },
+          annotationCount: 0,
+        };
+      }
+
+      // 3. Immediately cache binary in local IndexedDB for instant 0ms uploader experience
+      if (payload.buffer && createdDoc) {
+        await savePdfBlob(createdDoc.id, payload.buffer);
+      } else if (payload.file && createdDoc) {
+        try {
+          const buf = await payload.file.arrayBuffer();
+          await savePdfBlob(createdDoc.id, buf);
+        } catch {
+          // ignore
+        }
+      }
+
+      // 4. Update local state & storage
       setDocuments((prev) => {
-        const next = [newDoc, ...prev];
+        const next = [createdDoc!, ...prev.filter((d) => d.id !== createdDoc!.id)];
         syncToLocalStorage(next);
         return next;
       });
 
-      if (isSupabaseConfigured) {
+      // 5. Supabase direct DB insert if configured
+      if (isSupabaseConfigured && createdDoc) {
         try {
-          const { data: userData } = await supabase.auth.getUser();
           await (supabase.from('documents') as any).insert({
+            id: createdDoc.id,
             room_id: roomId,
-            uploaded_by: userData?.user?.id || '00000000-0000-0000-0000-000000000000',
-            title: payload.title,
-            subject: payload.subject,
-            unit: payload.unit,
-            syllabus_topic: payload.syllabusTopic,
-            file_url: payload.fileUrl || '',
-            total_pages: payload.totalPages || 1,
+            uploaded_by: '00000000-0000-0000-0000-000000000000',
+            title: createdDoc.title,
+            subject: createdDoc.subject,
+            unit: createdDoc.unit,
+            syllabus_topic: createdDoc.syllabusTopic,
+            file_url: createdDoc.fileUrl || '',
+            total_pages: createdDoc.totalPages || 1,
           });
         } catch (err) {
-          console.error('Failed to insert document:', err);
+          console.warn('Supabase DB insert fallback:', err);
         }
       }
 
-      return newDoc;
+      return createdDoc;
     },
     [roomId, isSupabaseConfigured, supabase, syncToLocalStorage]
   );
@@ -332,7 +435,7 @@ export function useSupabaseRoom(roomId: string) {
         try {
           await (supabase.from('documents') as any).delete().eq('id', documentId);
         } catch (err) {
-          console.error('Failed to delete document:', err);
+          console.error('Failed to delete document from Supabase:', err);
         }
       }
     },

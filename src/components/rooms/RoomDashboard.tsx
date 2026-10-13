@@ -45,6 +45,8 @@ interface RoomDashboardProps {
     syllabusTopic: string;
     totalPages?: number;
     fileUrl?: string;
+    file?: File | null;
+    buffer?: ArrayBuffer | null;
   }) => Promise<DocumentWithProgress | void>;
   onDeleteDocument?: (docId: string) => void;
 }
@@ -142,7 +144,8 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
         unit: Number(uploadUnit),
         syllabusTopic: uploadTopic.trim(),
         totalPages: finalPageCount,
-        fileUrl: uploadedFile ? URL.createObjectURL(uploadedFile) : '',
+        file: uploadedFile,
+        buffer: bufferToStore,
       });
 
       // Persist binary in IndexedDB for zero-buffering instant rendering
@@ -401,8 +404,8 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                     disabled={isSubmitting || !uploadTitle.trim()}
                     className="px-6 py-2.5 bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white text-xs font-bold rounded-xl hover:bg-white/90 active:scale-95 transition-all shadow-glow flex items-center gap-2 disabled:opacity-40"
                   >
-                    <Plus className="w-4 h-4" />
-                    <span>Upload Syllabus to Room</span>
+                    <Plus className={`w-4 h-4 ${isSubmitting ? 'animate-spin' : ''}`} />
+                    <span>{isSubmitting ? 'Syncing to Room...' : 'Upload Syllabus to Room'}</span>
                   </button>
                 </div>
               </form>
