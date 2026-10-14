@@ -6,6 +6,8 @@ import {
   saveDocsIndex,
   savePdfToDisk,
   deleteDocFromDisk,
+  getDeletedDocIds,
+  updateDocProgress,
 } from '@/lib/serverPdfStorage';
 import { generateSyllabusPdfBuffer } from '@/lib/syllabusPdfGenerator';
 
@@ -57,7 +59,11 @@ export async function GET(request: NextRequest) {
                 }
               : undefined,
           }));
-          return NextResponse.json({ documents: mapped, source: 'supabase' }, {
+          return NextResponse.json({
+            documents: mapped,
+            deletedIds: getDeletedDocIds(),
+            source: 'supabase',
+          }, {
             headers: {
               'Cache-Control': 'no-store, no-cache, must-revalidate',
             },
@@ -77,7 +83,11 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json(
-      { documents: sorted, source: 'universal_store' },
+      {
+        documents: sorted,
+        deletedIds: getDeletedDocIds(),
+        source: 'universal_store',
+      },
       {
         headers: {
           'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
@@ -326,5 +336,64 @@ export async function DELETE(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ success: true, deletedId: docId });
+  return NextResponse.json({
+    success: true,
+    deletedId: docId,
+    deletedIds: getDeletedDocIds(),
+  });
+}
+
+// PATCH /api/documents (Universal sync for status, bookmarks, progress across all devices)
+export async function PATCH(request: NextRequest) {
+  ensureStorageReady();
+  try {
+    const body = await request.json();
+    const { id, status, bookmarks } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: 'Missing document id' }, { status: 400 });
+    }
+
+    const updated = updateDocProgress(id, status, bookmarks);
+
+    // Also update Supabase if configured
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (supabaseUrl && supabaseUrl !== 'https://mock.supabase.co' && supabaseKey) {
+      try {
+        const supabase = createServerClient(supabaseUrl, supabaseKey, {
+          cookies: {
+            get() { return ''; },
+            set() {},
+            remove() {},
+          },
+        });
+
+        const updatePayload: any = { updated_at: new Date().toISOString() };
+        if (status) updatePayload.status = status;
+        if (bookmarks !== undefined) updatePayload.bookmarks = bookmarks;
+
+        await (supabase.from('user_document_progress') as any).upsert({
+          document_id: id,
+          user_id: '00000000-0000-0000-0000-000000000000',
+          ...updatePayload,
+        });
+      } catch (err) {
+        console.warn('Supabase DB patch warning:', err);
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      documents: updated,
+      deletedIds: getDeletedDocIds(),
+    });
+  } catch (err: any) {
+    console.error('Failed to patch document:', err);
+    return NextResponse.json(
+      { success: false, error: err?.message || 'Failed to update document' },
+      { status: 500 }
+    );
+  }
 }

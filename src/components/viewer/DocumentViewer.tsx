@@ -55,6 +55,7 @@ interface DocumentViewerProps {
   roomId: string;
   onStatusChange?: (status: DocumentStatus) => void;
   onAddBookmark?: (pageNumber: number, title: string) => void;
+  onRemoveBookmark?: (pageNumber: number) => void;
   onDeleteDocument?: () => void;
 }
 
@@ -72,6 +73,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   roomId,
   onStatusChange,
   onAddBookmark,
+  onRemoveBookmark,
   onDeleteDocument,
 }) => {
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -416,6 +418,11 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     setBookmarkInputOpen(false);
   };
 
+  const handleRemoveBookmark = (pageNumber: number) => {
+    setBookmarks((prev) => prev.filter((b) => b.pageNumber !== pageNumber));
+    onRemoveBookmark?.(pageNumber);
+  };
+
   const handleSaveGeometry = (geometry: PageAnnotationGeometry) => {
     setPageGeometries((prev) => ({
       ...prev,
@@ -613,7 +620,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setBookmarks((prev) => prev.filter((b) => b.pageNumber !== currentPage));
+                    handleRemoveBookmark(currentPage);
                   }}
                   className="p-1 rounded-full hover:bg-black/25 active:scale-90 transition-all text-black"
                   title="Remove bookmark from this page"
@@ -677,7 +684,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             <button
               onClick={() => {
                 if (currentBookmark) {
-                  setBookmarks((prev) => prev.filter((b) => b.pageNumber !== currentPage));
+                  handleRemoveBookmark(currentPage);
                 } else {
                   setBookmarkInputOpen(true);
                 }
@@ -716,7 +723,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        setBookmarks((prev) => prev.filter((b) => b.pageNumber !== currentPage));
+                        handleRemoveBookmark(currentPage);
                         setBookmarkInputOpen(false);
                       }}
                       className="px-2 py-1 text-xs text-red-400 hover:text-red-300 font-medium transition-colors"

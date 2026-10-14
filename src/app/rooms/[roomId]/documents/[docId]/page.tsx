@@ -17,6 +17,7 @@ export default function DocumentStudioPage() {
     documents,
     updateDocumentStatus,
     addBookmark,
+    removeBookmark,
     deleteDocument,
   } = useSupabaseRoom(roomId);
 
@@ -25,6 +26,13 @@ export default function DocumentStudioPage() {
 
   // Check from room state first
   const doc = documents.find((d) => d.id === docId) || directDoc;
+
+  // Real-time synchronization: If document was deleted by another user, immediately exit
+  useEffect(() => {
+    if (!isChecking && documents.length > 0 && !documents.some((d) => d.id === docId)) {
+      setDirectDoc(null);
+    }
+  }, [documents, docId, isChecking]);
 
   const handleDeleteAndExit = async () => {
     if (doc) {
@@ -138,6 +146,7 @@ export default function DocumentStudioPage() {
       roomId={roomId}
       onStatusChange={(status) => updateDocumentStatus(doc.id, status)}
       onAddBookmark={(page, title) => addBookmark(doc.id, page, title)}
+      onRemoveBookmark={(page) => removeBookmark(doc.id, page)}
       onDeleteDocument={handleDeleteAndExit}
     />
   );

@@ -7,11 +7,13 @@ const STORAGE_DIR = (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
   : path.join(process.cwd(), '.syllabi_store');
 const DOCS_INDEX_FILE = path.join(STORAGE_DIR, 'documents.json');
 const NOTICES_INDEX_FILE = path.join(STORAGE_DIR, 'notices.json');
+const DELETED_IDS_FILE = path.join(STORAGE_DIR, 'deleted_ids.json');
 const PDFS_DIR = path.join(STORAGE_DIR, 'pdfs');
 const ANNOTATIONS_DIR = path.join(STORAGE_DIR, 'annotations');
 
 let memoryDocsCache: any[] = [];
 let memoryNoticesCache: any[] = [];
+let memoryDeletedIds = new Set<string>();
 let isInitialized = false;
 
 export function ensureStorageReady() {
@@ -42,6 +44,19 @@ export function ensureStorageReady() {
         memoryNoticesCache = [];
         fs.writeFileSync(NOTICES_INDEX_FILE, JSON.stringify([]));
       }
+
+      if (fs.existsSync(DELETED_IDS_FILE)) {
+        try {
+          const data = fs.readFileSync(DELETED_IDS_FILE, 'utf-8');
+          const arr = JSON.parse(data);
+          if (Array.isArray(arr)) {
+            arr.forEach((id: string) => memoryDeletedIds.add(id));
+          }
+        } catch {}
+      } else {
+        fs.writeFileSync(DELETED_IDS_FILE, JSON.stringify([]));
+      }
+
       isInitialized = true;
     }
   } catch (err) {
@@ -100,21 +115,73 @@ export function getPdfFromDisk(docId: string): Buffer | null {
   return null;
 }
 
+export function getDeletedDocIds(): string[] {
+  ensureStorageReady();
+  try {
+    if (fs.existsSync(DELETED_IDS_FILE)) {
+      const data = fs.readFileSync(DELETED_IDS_FILE, 'utf-8');
+      const arr = JSON.parse(data);
+      if (Array.isArray(arr)) {
+        arr.forEach((id: string) => memoryDeletedIds.add(id));
+      }
+    }
+  } catch {}
+  return Array.from(memoryDeletedIds);
+}
+
+export function markDocDeleted(docId: string) {
+  ensureStorageReady();
+  memoryDeletedIds.add(docId);
+  try {
+    fs.writeFileSync(DELETED_IDS_FILE, JSON.stringify(Array.from(memoryDeletedIds), null, 2));
+  } catch {}
+}
+
+export function unmarkDocDeleted(docId: string) {
+  ensureStorageReady();
+  memoryDeletedIds.delete(docId);
+  try {
+    fs.writeFileSync(DELETED_IDS_FILE, JSON.stringify(Array.from(memoryDeletedIds), null, 2));
+  } catch {}
+}
+
+export function updateDocProgress(docId: string, status?: string, bookmarks?: any[]): any[] {
+  ensureStorageReady();
+  const all = getDocsIndex();
+  memoryDocsCache = all.map((d) => {
+    if (d.id === docId) {
+      return {
+        ...d,
+        userProgress: {
+          status: status || d.userProgress?.status || 'UNREAD',
+          bookmarks: bookmarks !== undefined ? bookmarks : (d.userProgress?.bookmarks || []),
+        },
+      };
+    }
+    return d;
+  });
+  saveDocsIndex(memoryDocsCache);
+  return memoryDocsCache;
+}
+
 export function deleteDocFromDisk(docId: string) {
   try {
     ensureStorageReady();
-    // 1. Remove from documents index
+    // 1. Record in persistent tombstones so all devices know it was deleted
+    markDocDeleted(docId);
+
+    // 2. Remove from documents index
     const all = getDocsIndex();
     memoryDocsCache = all.filter((d) => d.id !== docId);
-    fs.writeFileSync(DOCS_INDEX_FILE, JSON.stringify(memoryDocsCache, null, 2));
+    saveDocsIndex(memoryDocsCache);
 
-    // 2. Remove PDF file from disk
+    // 3. Remove PDF file from disk
     const filePath = path.join(PDFS_DIR, `${docId}.pdf`);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
 
-    // 3. Remove annotations file from disk
+    // 4. Remove annotations file from disk
     const annotPath = path.join(ANNOTATIONS_DIR, `${docId}.json`);
     if (fs.existsSync(annotPath)) {
       fs.unlinkSync(annotPath);

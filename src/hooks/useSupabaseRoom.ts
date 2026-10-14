@@ -68,67 +68,76 @@ export function useSupabaseRoom(roomId: string) {
       });
       if (res.ok) {
         const json = await res.json();
+
+        // 1. Ingest any deleted IDs reported by the server
+        if (Array.isArray(json?.deletedIds)) {
+          let hasNewDeleted = false;
+          json.deletedIds.forEach((id: string) => {
+            if (!deletedDocIdsRef.current.has(id)) {
+              deletedDocIdsRef.current.add(id);
+              hasNewDeleted = true;
+            }
+          });
+          if (hasNewDeleted && typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(
+                `syllabi_deleted_${roomId}`,
+                JSON.stringify(Array.from(deletedDocIdsRef.current))
+              );
+            } catch {}
+          }
+        }
+
         if (Array.isArray(json?.documents)) {
           setDocuments((prev) => {
+            // Filter out any document that was marked deleted
             const srvDocs: any[] = json.documents.filter(
               (doc: any) => !deletedDocIdsRef.current.has(doc.id)
             );
 
-            // ANTI-BLINKS SAFEGUARD 1: If server momentarily returns 0 items but we already have documents loaded,
-            // never wipe out active documents.
-            if (srvDocs.length === 0 && prev.length > 0) {
-              return prev.filter((d) => !deletedDocIdsRef.current.has(d.id));
-            }
-
+            // Clean up recent uploads that have now been confirmed on server
+            const now = Date.now();
             const srvMap = new Map(srvDocs.map((d: any) => [d.id, d]));
+            recentUploadsRef.current.forEach((val, docId) => {
+              if (srvMap.has(docId) || deletedDocIdsRef.current.has(docId) || now - val.time > 15000) {
+                recentUploadsRef.current.delete(docId);
+              }
+            });
 
-            // Build updated array from server docs
+            // Build updated list from authoritative server docs
             const updated: DocumentWithProgress[] = srvDocs.map((srvDoc: any) => {
-              const existing = prev.find((p) => p.id === srvDoc.id);
               return {
                 ...srvDoc,
-                userProgress: existing?.userProgress || srvDoc.userProgress,
-                savedContributors: srvDoc.savedContributors || existing?.savedContributors,
-                savedDrafts: srvDoc.savedDrafts || existing?.savedDrafts,
-                savedAnnotations: srvDoc.savedAnnotations || existing?.savedAnnotations,
-                annotationCount: srvDoc.annotationCount || existing?.annotationCount,
+                userProgress: srvDoc.userProgress || { status: 'UNREAD', bookmarks: [] },
+                savedContributors: srvDoc.savedContributors || [],
+                savedDrafts: srvDoc.savedDrafts || [],
+                savedAnnotations: srvDoc.savedAnnotations,
+                annotationCount: srvDoc.annotationCount || 0,
               };
             });
 
-            // ANTI-BLINKS SAFEGUARD 2: Keep any active documents currently in prev that were not deleted
-            prev.forEach((prevDoc) => {
-              if (!srvMap.has(prevDoc.id) && !deletedDocIdsRef.current.has(prevDoc.id)) {
-                if (!updated.some((u) => u.id === prevDoc.id)) {
-                  updated.push(prevDoc);
-                }
-              }
-            });
-
-            // Retain recent in-flight uploads until confirmed
-            const now = Date.now();
+            // Retain only local in-flight uploads that were created within the last 15 seconds
             recentUploadsRef.current.forEach((val, docId) => {
-              if (now - val.time > 60000) {
-                if (srvMap.has(docId)) {
-                  recentUploadsRef.current.delete(docId);
-                }
-              }
-              if (!deletedDocIdsRef.current.has(docId) && !updated.some((u) => u.id === docId)) {
+              if (!deletedDocIdsRef.current.has(docId) && now - val.time < 15000 && !updated.some((u) => u.id === docId)) {
                 updated.unshift(val.doc);
               }
             });
 
-            // ANTI-BLINKS SAFEGUARD 3: If documents, progress, and contributors have not changed,
-            // return the existing prev reference to prevent React re-renders and visual flickering.
-            if (
+            // Anti-thrashing equality check: if length and contents haven't changed, retain reference
+            const isIdentical =
               prev.length === updated.length &&
-              prev.every((p, idx) =>
-                p.id === updated[idx]?.id &&
-                p.userProgress?.status === updated[idx]?.userProgress?.status &&
-                (p.annotationCount || 0) === (updated[idx]?.annotationCount || 0) &&
-                (p.savedContributors?.length || 0) === (updated[idx]?.savedContributors?.length || 0) &&
-                (p.savedDrafts?.length || 0) === (updated[idx]?.savedDrafts?.length || 0)
-              )
-            ) {
+              prev.every((p, idx) => {
+                const u = updated[idx];
+                if (!u || p.id !== u.id) return false;
+                if (p.userProgress?.status !== u.userProgress?.status) return false;
+                if ((p.userProgress?.bookmarks?.length || 0) !== (u.userProgress?.bookmarks?.length || 0)) return false;
+                if ((p.annotationCount || 0) !== (u.annotationCount || 0)) return false;
+                if ((p.savedContributors?.length || 0) !== (u.savedContributors?.length || 0)) return false;
+                if ((p.savedDrafts?.length || 0) !== (u.savedDrafts?.length || 0)) return false;
+                return true;
+              });
+
+            if (isIdentical) {
               return prev;
             }
 
@@ -258,9 +267,10 @@ export function useSupabaseRoom(roomId: string) {
     };
   }, [roomId, supabase, isSupabaseConfigured, fetchUniversalDocuments]);
 
-  // Update document status checklist
+  // Update document status checklist across all devices
   const updateDocumentStatus = useCallback(
     async (documentId: string, status: DocumentStatus) => {
+      // 1. Optimistic update
       setDocuments((prev) => {
         const next = prev.map((doc) => {
           if (doc.id === documentId) {
@@ -278,12 +288,31 @@ export function useSupabaseRoom(roomId: string) {
         return next;
       });
 
+      // 2. Broadcast to server universal store so ALL other devices update immediately
+      try {
+        await fetch('/api/documents', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: documentId, status }),
+        });
+      } catch (err) {
+        console.warn('Universal store status patch warning:', err);
+      }
+
+      // 3. Broadcast to other local browser tabs
+      try {
+        if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+          const bc = new BroadcastChannel(`syllabi_sync_${roomId}`);
+          bc.postMessage({ type: 'DOCUMENTS_UPDATED' });
+          bc.close();
+        }
+      } catch {}
+
+      // 4. Supabase direct DB update if configured
       if (isSupabaseConfigured) {
         try {
           const { data: userData } = await supabase.auth.getUser();
-          const userId = userData?.user?.id;
-          if (!userId) return;
-
+          const userId = userData?.user?.id || '00000000-0000-0000-0000-000000000000';
           await (supabase.from('user_document_progress') as any).upsert({
             document_id: documentId,
             user_id: userId,
@@ -295,10 +324,10 @@ export function useSupabaseRoom(roomId: string) {
         }
       }
     },
-    [isSupabaseConfigured, supabase, syncToLocalStorage]
+    [roomId, isSupabaseConfigured, supabase, syncToLocalStorage]
   );
 
-  // Add Bookmark
+  // Add Bookmark across all devices
   const addBookmark = useCallback(
     async (documentId: string, pageNumber: number, title: string) => {
       const newBm: Bookmark = {
@@ -308,15 +337,21 @@ export function useSupabaseRoom(roomId: string) {
         createdAt: new Date().toISOString(),
       };
 
+      let updatedBms: Bookmark[] = [newBm];
+
+      // 1. Optimistic update
       setDocuments((prev) => {
         const next = prev.map((doc) => {
           if (doc.id === documentId) {
-            const currentBms = doc.userProgress?.bookmarks || [];
+            const currentBms = (doc.userProgress?.bookmarks || []).filter(
+              (b) => b.pageNumber !== pageNumber
+            );
+            updatedBms = [...currentBms, newBm];
             return {
               ...doc,
               userProgress: {
                 status: doc.userProgress?.status || 'IN_PROGRESS',
-                bookmarks: [...currentBms, newBm],
+                bookmarks: updatedBms,
               },
             };
           }
@@ -326,15 +361,31 @@ export function useSupabaseRoom(roomId: string) {
         return next;
       });
 
+      // 2. Broadcast to server universal store so ALL other devices update immediately
+      try {
+        await fetch('/api/documents', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: documentId, bookmarks: updatedBms }),
+        });
+      } catch (err) {
+        console.warn('Universal store bookmark patch warning:', err);
+      }
+
+      // 3. Broadcast to other local browser tabs
+      try {
+        if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+          const bc = new BroadcastChannel(`syllabi_sync_${roomId}`);
+          bc.postMessage({ type: 'DOCUMENTS_UPDATED' });
+          bc.close();
+        }
+      } catch {}
+
+      // 4. Supabase direct DB update if configured
       if (isSupabaseConfigured) {
         try {
           const { data: userData } = await supabase.auth.getUser();
-          const userId = userData?.user?.id;
-          if (!userId) return;
-
-          const targetDoc = documents.find((d) => d.id === documentId);
-          const updatedBms = [...(targetDoc?.userProgress?.bookmarks || []), newBm];
-
+          const userId = userData?.user?.id || '00000000-0000-0000-0000-000000000000';
           await (supabase.from('user_document_progress') as any).upsert({
             document_id: documentId,
             user_id: userId,
@@ -346,7 +397,73 @@ export function useSupabaseRoom(roomId: string) {
         }
       }
     },
-    [documents, isSupabaseConfigured, supabase, syncToLocalStorage]
+    [roomId, isSupabaseConfigured, supabase, syncToLocalStorage]
+  );
+
+  // Remove Bookmark across all devices
+  const removeBookmark = useCallback(
+    async (documentId: string, pageNumber: number) => {
+      let updatedBms: Bookmark[] = [];
+
+      // 1. Optimistic update
+      setDocuments((prev) => {
+        const next = prev.map((doc) => {
+          if (doc.id === documentId) {
+            updatedBms = (doc.userProgress?.bookmarks || []).filter(
+              (b) => b.pageNumber !== pageNumber
+            );
+            return {
+              ...doc,
+              userProgress: {
+                ...doc.userProgress,
+                status: doc.userProgress?.status || 'UNREAD',
+                bookmarks: updatedBms,
+              },
+            };
+          }
+          return doc;
+        });
+        syncToLocalStorage(next);
+        return next;
+      });
+
+      // 2. Broadcast to server universal store
+      try {
+        await fetch('/api/documents', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: documentId, bookmarks: updatedBms }),
+        });
+      } catch (err) {
+        console.warn('Universal store remove bookmark patch warning:', err);
+      }
+
+      // 3. Broadcast to other local browser tabs
+      try {
+        if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+          const bc = new BroadcastChannel(`syllabi_sync_${roomId}`);
+          bc.postMessage({ type: 'DOCUMENTS_UPDATED' });
+          bc.close();
+        }
+      } catch {}
+
+      // 4. Supabase direct DB update if configured
+      if (isSupabaseConfigured) {
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          const userId = userData?.user?.id || '00000000-0000-0000-0000-000000000000';
+          await (supabase.from('user_document_progress') as any).upsert({
+            document_id: documentId,
+            user_id: userId,
+            bookmarks: updatedBms as any,
+            updated_at: new Date().toISOString(),
+          });
+        } catch (err) {
+          console.error('Failed to sync remove bookmark to Supabase:', err);
+        }
+      }
+    },
+    [roomId, isSupabaseConfigured, supabase, syncToLocalStorage]
   );
 
   // Upload or register a new document to shared server & local store
@@ -569,6 +686,7 @@ export function useSupabaseRoom(roomId: string) {
     isConnected,
     updateDocumentStatus,
     addBookmark,
+    removeBookmark,
     addDocument,
     deleteDocument,
   };
