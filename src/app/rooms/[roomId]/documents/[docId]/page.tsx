@@ -42,6 +42,27 @@ export default function DocumentStudioPage() {
         return;
       }
 
+      // 1. Instant check from local storage
+      if (typeof window !== 'undefined') {
+        try {
+          const stored = localStorage.getItem(`syllabi_docs_${roomId}`);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              const found = parsed.find((d: any) => d.id === docId);
+              if (found && !isCancelled) {
+                setDirectDoc(found);
+                setIsChecking(false);
+                return;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Local storage check warning:', e);
+        }
+      }
+
+      // 2. Fetch from room API
       try {
         const res = await fetch(`/api/documents?roomId=${encodeURIComponent(roomId)}`);
         if (res.ok) {
@@ -62,14 +83,14 @@ export default function DocumentStudioPage() {
       }
     }
 
-    // Give a brief window for local documents to hydrate before initiating network check
-    const timeout = setTimeout(() => {
+    if (doc) {
+      setIsChecking(false);
+    } else {
       checkDirectDocument();
-    }, 150);
+    }
 
     return () => {
       isCancelled = true;
-      clearTimeout(timeout);
     };
   }, [docId, roomId, doc]);
 

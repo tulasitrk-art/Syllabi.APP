@@ -7,6 +7,7 @@ import {
   savePdfToDisk,
   deleteDocFromDisk,
 } from '@/lib/serverPdfStorage';
+import { generateSyllabusPdfBuffer } from '@/lib/syllabusPdfGenerator';
 
 // GET /api/documents?roomId=...
 export async function GET(request: NextRequest) {
@@ -83,6 +84,10 @@ export async function POST(request: NextRequest) {
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData();
+      const passedDocId = formData.get('docId') as string;
+      if (passedDocId && passedDocId.trim()) {
+        docId = passedDocId.trim();
+      }
       const file = formData.get('file') as File | null;
       title = (formData.get('title') as string) || '';
       subject = (formData.get('subject') as string) || 'AI';
@@ -100,6 +105,9 @@ export async function POST(request: NextRequest) {
       }
     } else {
       const json = await request.json();
+      if (json.docId && typeof json.docId === 'string') {
+        docId = json.docId.trim();
+      }
       title = json.title || '';
       subject = json.subject || 'AI';
       unit = Number(json.unit) || 1;
@@ -118,10 +126,19 @@ export async function POST(request: NextRequest) {
       title = `${title}.pdf`;
     }
 
-    // Save PDF file binary
-    if (pdfBuffer) {
-      savePdfToDisk(docId, pdfBuffer);
+    // Save PDF file binary - if no binary was uploaded, auto-generate standard syllabus PDF
+    if (!pdfBuffer || pdfBuffer.length === 0) {
+      const generated = generateSyllabusPdfBuffer({
+        title,
+        subject,
+        unit,
+        syllabusTopic,
+        totalPages,
+      });
+      pdfBuffer = Buffer.from(generated);
     }
+
+    savePdfToDisk(docId, pdfBuffer);
 
     const fileUrl = `/api/documents/${docId}/file`;
 

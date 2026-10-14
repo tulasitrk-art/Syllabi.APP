@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { getPdfFromDisk } from '@/lib/serverPdfStorage';
+import { getPdfFromDisk, savePdfToDisk, getDocsIndex } from '@/lib/serverPdfStorage';
+import { generateSyllabusPdfBuffer } from '@/lib/syllabusPdfGenerator';
 
 export async function GET(
   request: NextRequest,
@@ -10,10 +11,24 @@ export async function GET(
     return new Response('Document ID missing', { status: 400 });
   }
 
-  const pdfBuffer = getPdfFromDisk(docId);
+  let pdfBuffer = getPdfFromDisk(docId);
 
+  // If not on disk, auto-generate from doc index metadata so the viewer always opens
   if (!pdfBuffer) {
-    return new Response('PDF binary not found', { status: 404 });
+    const docs = getDocsIndex();
+    const docMeta = docs.find((d) => d.id === docId);
+
+    const generatedArrayBuffer = generateSyllabusPdfBuffer({
+      title: docMeta?.title || 'Syllabus Course Document',
+      subject: docMeta?.subject || 'CS',
+      unit: docMeta?.unit || 1,
+      syllabusTopic: docMeta?.syllabusTopic || 'Core Syllabus Foundations & Examination Targets',
+      totalPages: docMeta?.totalPages || 1,
+    });
+
+    const generatedBuf = Buffer.from(generatedArrayBuffer);
+    savePdfToDisk(docId, generatedBuf);
+    pdfBuffer = generatedBuf;
   }
 
   return new Response(new Uint8Array(pdfBuffer), {
@@ -25,3 +40,4 @@ export async function GET(
     },
   });
 }
+

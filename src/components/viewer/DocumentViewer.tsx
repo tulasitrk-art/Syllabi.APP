@@ -94,9 +94,19 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     description: '',
   };
 
-  // Auto-fit page height on initial dimension load
+  // Auto-fit page height on initial dimension load with equality check to prevent re-render loops
   const handleDimensionsChange = useCallback((width: number, height: number) => {
-    setPageDimensions({ width, height });
+    setPageDimensions((prev) => {
+      if (prev && Math.abs(prev.width - width) < 1 && Math.abs(prev.height - height) < 1) {
+        return prev;
+      }
+      return { width, height };
+    });
+  }, []);
+
+  // Stable callback for page detection
+  const handlePagesDetected = useCallback((detected: number) => {
+    setTotalPages((prev) => (detected > 0 && detected !== prev ? detected : prev));
   }, []);
 
   // Fit Page: Scale so the entire page is 100% visible vertically without clipping
@@ -313,51 +323,14 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
               fileUrl={doc.fileUrl}
               currentPage={currentPage}
               zoomScale={zoomScale}
+              documentTitle={doc.title}
+              subject={doc.subject}
+              unit={doc.unit}
+              syllabusTopic={doc.syllabusTopic}
               onDimensionsChange={handleDimensionsChange}
               onDeleteDocument={onDeleteDocument}
-              onPagesDetected={(detected) => {
-                if (detected > 0 && detected !== totalPages) {
-                  setTotalPages(detected);
-                }
-              }}
+              onPagesDetected={handlePagesDetected}
             />
-
-            {/* Structured fallback if PDF binary is absent */}
-            {!doc.fileUrl && (
-              <div className="w-full h-full p-8 md:p-14 flex flex-col justify-between bg-gradient-to-b from-[#0c0c0c] to-[#070707] text-white/90">
-                <div className="border-b border-white/10 pb-4 flex items-center justify-between">
-                  <div>
-                    <div className="text-[11px] font-mono tracking-widest text-white/40 uppercase">
-                      DEPARTMENT OF COMPUTER SCIENCE & ENGINEERING
-                    </div>
-                    <div className="text-lg font-bold tracking-tight text-white mt-1">
-                      {subjectInfo.name} ({doc.subject})
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-mono text-white/50 border border-white/10 px-2 py-0.5 rounded">
-                      UNIT {doc.unit}
-                    </span>
-                    <div className="text-[10px] text-white/30 mt-1 font-mono">
-                      PAGE {currentPage} OF {totalPages}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="my-auto space-y-4 text-center">
-                  <h2 className="text-base font-semibold text-white">
-                    {doc.title} — Page {currentPage}
-                  </h2>
-                  <p className="text-xs text-white/50 max-w-md mx-auto">
-                    {doc.syllabusTopic || 'Core Syllabus Foundations & Examination Targets'}
-                  </p>
-                </div>
-
-                <div className="border-t border-white/10 pt-3 text-[10px] text-white/30 font-mono text-center">
-                  SYLLABI OS • IMMUTABLE BASE LAYER (Z-0)
-                </div>
-              </div>
-            )}
           </div>
 
           {/* DYNAMIC ANNOTATION LAYER (z-10): TRANSPARENT OVERLAY RULE */}

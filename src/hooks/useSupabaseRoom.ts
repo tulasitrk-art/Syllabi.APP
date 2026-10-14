@@ -10,6 +10,7 @@ import {
 } from '@/types/syllabi';
 import { DocumentStatus, SubjectCode } from '@/types/database';
 import { savePdfBlob, deletePdfBlob } from '@/lib/pdfStorage';
+import { generateSyllabusPdfBuffer } from '@/lib/syllabusPdfGenerator';
 
 export function useSupabaseRoom(roomId: string) {
   const supabase = useMemo(() => createClient(), []);
@@ -348,35 +349,57 @@ export function useSupabaseRoom(roomId: string) {
     }): Promise<DocumentWithProgress> => {
       let createdDoc: DocumentWithProgress | null = null;
 
-      // 1. Upload to shared universal API route with file
-      if (payload.file) {
+      // 1. Resolve or generate valid PDF buffer
+      let bufferToPersist: ArrayBuffer | null = payload.buffer ? payload.buffer.slice(0) : null;
+      if (!bufferToPersist && payload.file) {
         try {
-          const formData = new FormData();
-          formData.append('file', payload.file);
-          formData.append('title', payload.title);
-          formData.append('subject', payload.subject);
-          formData.append('unit', String(payload.unit));
-          formData.append('syllabusTopic', payload.syllabusTopic);
-          formData.append('totalPages', String(payload.totalPages || 1));
-          formData.append('roomId', roomId);
-
-          const res = await fetch('/api/documents', {
-            method: 'POST',
-            body: formData,
-          });
-
-          if (res.ok) {
-            const data = await res.json();
-            if (data?.document) {
-              createdDoc = data.document;
-            }
-          }
-        } catch (err) {
-          console.warn('Universal upload API warning:', err);
+          bufferToPersist = await payload.file.arrayBuffer();
+        } catch {
+          // ignore
         }
       }
+      if (!bufferToPersist || bufferToPersist.byteLength === 0) {
+        bufferToPersist = generateSyllabusPdfBuffer({
+          title: payload.title,
+          subject: payload.subject,
+          unit: payload.unit,
+          syllabusTopic: payload.syllabusTopic,
+          totalPages: payload.totalPages || 1,
+        });
+      }
 
-      // 2. Fallback creation if offline or direct
+      // 2. Upload to shared universal API route with file/blob
+      try {
+        const formData = new FormData();
+        if (payload.file) {
+          formData.append('file', payload.file);
+        } else if (bufferToPersist) {
+          const pdfBlob = new Blob([bufferToPersist.slice(0)], { type: 'application/pdf' });
+          formData.append('file', pdfBlob, payload.title.endsWith('.pdf') ? payload.title : `${payload.title}.pdf`);
+        }
+        formData.append('title', payload.title);
+        formData.append('subject', payload.subject);
+        formData.append('unit', String(payload.unit));
+        formData.append('syllabusTopic', payload.syllabusTopic);
+        formData.append('totalPages', String(payload.totalPages || 1));
+        formData.append('roomId', roomId);
+
+        const res = await fetch('/api/documents', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.document) {
+            createdDoc = data.document;
+          }
+        }
+      } catch (err) {
+        console.warn('Universal upload API warning:', err);
+      }
+
+      // 3. Fallback creation if offline or direct
       if (!createdDoc) {
         const docId = `doc_${Date.now()}`;
         createdDoc = {
@@ -398,16 +421,9 @@ export function useSupabaseRoom(roomId: string) {
         };
       }
 
-      // 3. Immediately cache binary in local IndexedDB for instant 0ms uploader experience
-      if (payload.buffer && createdDoc) {
-        await savePdfBlob(createdDoc.id, payload.buffer.slice(0));
-      } else if (payload.file && createdDoc) {
-        try {
-          const buf = await payload.file.arrayBuffer();
-          await savePdfBlob(createdDoc.id, buf.slice(0));
-        } catch {
-          // ignore
-        }
+      // 4. Immediately cache binary in local IndexedDB for instant 0ms uploader experience
+      if (bufferToPersist && createdDoc) {
+        await savePdfBlob(createdDoc.id, bufferToPersist.slice(0));
       }
 
       // Remove from tombstone set if re-uploaded
