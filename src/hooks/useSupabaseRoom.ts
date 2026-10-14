@@ -58,37 +58,6 @@ export function useSupabaseRoom(roomId: string) {
     }
   }, [roomId]);
 
-  // Merge helper: combines server and local documents without duplicates and filters out deleted
-  const mergeDocuments = useCallback(
-    (existing: DocumentWithProgress[], incoming: DocumentWithProgress[]) => {
-      const map = new Map<string, DocumentWithProgress>();
-      // Put incoming first, skipping permanently deleted
-      incoming.forEach((doc) => {
-        if (!deletedDocIdsRef.current.has(doc.id)) {
-          map.set(doc.id, doc);
-        }
-      });
-      // Overlay with existing
-      existing.forEach((doc) => {
-        if (!deletedDocIdsRef.current.has(doc.id)) {
-          if (map.has(doc.id)) {
-            const inc = map.get(doc.id)!;
-            map.set(doc.id, {
-              ...inc,
-              userProgress: doc.userProgress || inc.userProgress,
-            });
-          } else {
-            map.set(doc.id, doc);
-          }
-        }
-      });
-      return Array.from(map.values()).sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-    },
-    []
-  );
-
   // Fetch from Universal Server API route (/api/documents)
   const fetchUniversalDocuments = useCallback(async () => {
     try {
@@ -96,17 +65,30 @@ export function useSupabaseRoom(roomId: string) {
       if (res.ok) {
         const json = await res.json();
         if (Array.isArray(json?.documents)) {
+          // Authoritative server reconciliation:
+          // Deleted documents on server are immediately removed on all clients!
           setDocuments((prev) => {
-            const merged = mergeDocuments(prev, json.documents);
-            syncToLocalStorage(merged);
-            return merged;
+            const updated = json.documents
+              .filter((doc: any) => !deletedDocIdsRef.current.has(doc.id))
+              .map((srvDoc: any) => {
+                const existing = prev.find((p) => p.id === srvDoc.id);
+                return {
+                  ...srvDoc,
+                  userProgress: existing?.userProgress || srvDoc.userProgress,
+                  savedContributors: srvDoc.savedContributors || existing?.savedContributors,
+                  savedAnnotations: srvDoc.savedAnnotations || existing?.savedAnnotations,
+                  annotationCount: srvDoc.annotationCount || existing?.annotationCount,
+                };
+              });
+            syncToLocalStorage(updated);
+            return updated;
           });
         }
       }
     } catch (err) {
       console.warn('Could not poll universal documents API:', err);
     }
-  }, [roomId, mergeDocuments, syncToLocalStorage]);
+  }, [roomId, syncToLocalStorage]);
 
   // Initial load: 1. Deleted IDs -> 2. LocalStorage -> 3. Universal API
   useEffect(() => {
@@ -138,12 +120,28 @@ export function useSupabaseRoom(roomId: string) {
     // Fetch from shared server API
     fetchUniversalDocuments();
 
-    // Periodic background polling
+    // 2-second real-time polling so all 10+ users see uploaded or deleted documents synchronously
     const pollInterval = setInterval(() => {
       fetchUniversalDocuments();
-    }, 5000);
+    }, 2000);
 
-    return () => clearInterval(pollInterval);
+    // BroadcastChannel for instant local cross-tab sync
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        bc = new BroadcastChannel(`syllabi_sync_${roomId}`);
+        bc.onmessage = (e) => {
+          if (e.data?.type === 'DOCUMENTS_UPDATED') {
+            fetchUniversalDocuments();
+          }
+        };
+      }
+    } catch {}
+
+    return () => {
+      clearInterval(pollInterval);
+      if (bc) bc.close();
+    };
   }, [roomId, fetchUniversalDocuments]);
 
   // Supabase Realtime channel setup (when Supabase credentials exist)
@@ -204,9 +202,20 @@ export function useSupabaseRoom(roomId: string) {
           });
 
           setDocuments((prev) => {
-            const merged = mergeDocuments(prev, mapped);
-            syncToLocalStorage(merged);
-            return merged;
+            const updated = mapped
+              .filter((doc) => !deletedDocIdsRef.current.has(doc.id))
+              .map((srvDoc) => {
+                const existing = prev.find((p) => p.id === srvDoc.id);
+                return {
+                  ...srvDoc,
+                  userProgress: existing?.userProgress || srvDoc.userProgress,
+                  savedContributors: srvDoc.savedContributors || existing?.savedContributors,
+                  savedAnnotations: srvDoc.savedAnnotations || existing?.savedAnnotations,
+                  annotationCount: srvDoc.annotationCount || existing?.annotationCount,
+                };
+              });
+            syncToLocalStorage(updated);
+            return updated;
           });
         }
       } catch (err) {
@@ -242,7 +251,7 @@ export function useSupabaseRoom(roomId: string) {
       isMounted = false;
       supabase.removeChannel(channel);
     };
-  }, [roomId, supabase, isSupabaseConfigured, mergeDocuments, syncToLocalStorage]);
+  }, [roomId, supabase, isSupabaseConfigured, syncToLocalStorage]);
 
   // Update document status checklist
   const updateDocumentStatus = useCallback(
@@ -455,6 +464,15 @@ export function useSupabaseRoom(roomId: string) {
         }
       }
 
+      // Notify other tabs immediately
+      try {
+        if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+          const bc = new BroadcastChannel(`syllabi_sync_${roomId}`);
+          bc.postMessage({ type: 'DOCUMENTS_UPDATED' });
+          bc.close();
+        }
+      } catch {}
+
       return createdDoc;
     },
     [roomId, isSupabaseConfigured, supabase, syncToLocalStorage]
@@ -490,9 +508,22 @@ export function useSupabaseRoom(roomId: string) {
       deletePdfBlob(documentId).catch(() => {});
 
       // 4. Permanently remove from server storage API
-      fetch(`/api/documents?id=${encodeURIComponent(documentId)}`, {
-        method: 'DELETE',
-      }).catch((e) => console.warn('Server delete error:', e));
+      try {
+        await fetch(`/api/documents?id=${encodeURIComponent(documentId)}`, {
+          method: 'DELETE',
+        });
+      } catch (e) {
+        console.warn('Server delete error:', e);
+      }
+
+      // Notify other tabs
+      try {
+        if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+          const bc = new BroadcastChannel(`syllabi_sync_${roomId}`);
+          bc.postMessage({ type: 'DOCUMENTS_UPDATED' });
+          bc.close();
+        }
+      } catch {}
 
       // 5. Delete from Supabase if configured
       if (isSupabaseConfigured) {

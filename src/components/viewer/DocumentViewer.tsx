@@ -6,12 +6,13 @@ import {
   DocumentWithProgress,
   PageAnnotationGeometry,
   Bookmark,
+  DocumentContributor,
 } from '@/types/syllabi';
 import { DocumentStatus } from '@/types/database';
 import { AnnotationCanvas } from '@/components/annotation/AnnotationCanvas';
 import { PdfViewerCanvas } from '@/components/viewer/PdfViewerCanvas';
 import { ThemeToggle } from '@/components/theme/ThemeProvider';
-import { STATUS_CONFIG, SUBJECT_METADATA } from '@/lib/utils';
+import { STATUS_CONFIG, SUBJECT_METADATA, formatTimeAgo } from '@/lib/utils';
 import {
   ChevronLeft,
   ChevronRight,
@@ -36,6 +37,10 @@ import {
   Minimize2,
   Move,
   Trash2,
+  Save,
+  User,
+  Sparkles,
+  X,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -85,9 +90,128 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(
     doc.userProgress?.bookmarks || []
   );
-  const [pageGeometries, setPageGeometries] = useState<Record<number, PageAnnotationGeometry>>({});
+  const [pageGeometries, setPageGeometries] = useState<Record<number, PageAnnotationGeometry>>(
+    doc.savedAnnotations || {}
+  );
   const [bookmarkInputOpen, setBookmarkInputOpen] = useState<boolean>(false);
   const [bookmarkTitle, setBookmarkTitle] = useState<string>('');
+
+  // Universal Saved Contributors & Real-time Save State
+  const [contributors, setContributors] = useState<DocumentContributor[]>(
+    doc.savedContributors || []
+  );
+  const [showSaveNameModal, setShowSaveNameModal] = useState<boolean>(false);
+  const [showContributorsModal, setShowContributorsModal] = useState<boolean>(false);
+  const [inputAuthorName, setInputAuthorName] = useState<string>('');
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+
+  // Load annotations from shared server API
+  const fetchDocAnnotations = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/documents/${encodeURIComponent(doc.id)}/annotations`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.geometries) {
+          setPageGeometries((prev) => ({
+            ...data.geometries,
+            ...prev,
+          }));
+        }
+        if (Array.isArray(data?.contributors) && data.contributors.length > 0) {
+          setContributors(data.contributors);
+        }
+        if (Array.isArray(data?.bookmarks) && data.bookmarks.length > 0) {
+          setBookmarks((prev) => {
+            const map = new Map();
+            data.bookmarks.forEach((b: any) => map.set(b.id || `${b.pageNumber}_${b.title}`, b));
+            prev.forEach((b) => map.set(b.id || `${b.pageNumber}_${b.title}`, b));
+            return Array.from(map.values());
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Could not load annotations:', err);
+    }
+  }, [doc.id]);
+
+  useEffect(() => {
+    fetchDocAnnotations();
+
+    // Fast polling every 2.5s so changes saved by another user appear live
+    const interval = setInterval(fetchDocAnnotations, 2500);
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        bc = new BroadcastChannel(`syllabi_annot_${doc.id}`);
+        bc.onmessage = (e) => {
+          if (e.data?.type === 'ANNOTATIONS_UPDATED') {
+            fetchDocAnnotations();
+          }
+        };
+      }
+    } catch {}
+
+    if (typeof window !== 'undefined') {
+      const savedName = localStorage.getItem('syllabi_author_name');
+      if (savedName) setInputAuthorName(savedName);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (bc) bc.close();
+    };
+  }, [doc.id, fetchDocAnnotations]);
+
+  const handleConfirmSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputAuthorName.trim()) return;
+    const author = inputAuthorName.trim();
+    setIsSaving(true);
+    setShowSaveNameModal(false);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('syllabi_author_name', author);
+    }
+
+    try {
+      const res = await fetch(`/api/documents/${encodeURIComponent(doc.id)}/annotations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          authorName: author,
+          geometries: pageGeometries,
+          bookmarks,
+          status,
+        }),
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.record && Array.isArray(json.record.contributors)) {
+          setContributors(json.record.contributors);
+        }
+      }
+
+      // Broadcast to other tabs/users
+      try {
+        if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+          const bc = new BroadcastChannel(`syllabi_annot_${doc.id}`);
+          bc.postMessage({ type: 'ANNOTATIONS_UPDATED' });
+          bc.close();
+        }
+      } catch {}
+
+      setSaveSuccessMessage(`Annotations saved by ${author}! Visible to all cohort users.`);
+      setTimeout(() => setSaveSuccessMessage(null), 4000);
+    } catch (err) {
+      console.warn('Error saving annotations:', err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
 
   const subjectInfo = SUBJECT_METADATA[doc.subject] || {
     name: doc.subject,
@@ -564,6 +688,50 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
               {isTouchMode ? 'Touch Mode (Move with Mouse)' : 'Touch Mode'}
             </span>
           </button>
+
+          {/* SAVE OPTION BUTTON (POSITIONED AFTER TOUCH MODE FEATURE) */}
+          <button
+            type="button"
+            onClick={() => setShowSaveNameModal(true)}
+            disabled={isSaving}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white text-xs font-bold hover:bg-white/90 active:scale-95 transition-all shadow-glow disabled:opacity-50"
+            title="Save pen strokes, highlights, notes & bookmarks for all cohort users"
+          >
+            <Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-spin' : ''}`} />
+            <span>{isSaving ? 'Saving...' : 'Save'}</span>
+          </button>
+
+          {/* ROUND ANIMATED ICON WITH USER NAME WHO SAVED (POSITIONED AFTER TOUCH MODE) */}
+          {contributors.length > 0 && (
+            <div
+              onClick={() => setShowContributorsModal(true)}
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-2xl bg-surface dark:bg-surface light:bg-zinc-100 border border-white/20 dark:border-white/20 light:border-zinc-300 hover:border-white/50 cursor-pointer transition-all shadow-sm group active:scale-95"
+              title={`Saved by ${contributors[0].name}. Click to view cohort annotation history.`}
+            >
+              {/* Round Animated Icon with glowing pulse ring */}
+              <div className="relative w-6 h-6 flex items-center justify-center flex-shrink-0">
+                <span className="absolute -inset-0.5 rounded-full bg-cyan-400/60 animate-ping opacity-75" />
+                <div className="relative w-6 h-6 rounded-full bg-gradient-to-tr from-cyan-400 via-indigo-500 to-emerald-400 p-[1.5px] shadow-sm">
+                  <div className="w-full h-full rounded-full bg-black flex items-center justify-center text-[9px] font-bold text-white uppercase font-mono">
+                    {contributors[0].name.slice(0, 2).toUpperCase()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Saved User Name Display */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-mono text-white/50 dark:text-white/50 light:text-zinc-500 hidden sm:inline">
+                  Saved by
+                </span>
+                <span className="text-xs font-bold text-white dark:text-white light:text-zinc-900 max-w-[110px] truncate">
+                  {contributors[0].name}
+                </span>
+              </div>
+
+              {/* Live indicator dot */}
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            </div>
+          )}
         </div>
 
         {/* VIEWPORT CONTROLS: FIT PAGE / FIT WIDTH / ZOOM */}
@@ -614,6 +782,155 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           </div>
         </div>
       </footer>
+
+      {/* 4. SAVE NAME INPUT MODAL (POPUP TO ASK USER NAME) */}
+      {showSaveNameModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-md bg-[#0c0c0e] dark:bg-[#0c0c0e] light:bg-white border border-white/20 dark:border-white/20 light:border-zinc-300 rounded-3xl shadow-2xl p-6 sm:p-7 overflow-hidden text-white dark:text-white light:text-zinc-900 animate-scale-up">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10 dark:border-white/10 light:border-zinc-200">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white flex items-center justify-center font-bold shadow-glow">
+                  <Save className="w-4 h-4 stroke-[2.5]" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold tracking-tight">Save Annotations</h2>
+                  <p className="text-xs text-white/50 dark:text-white/50 light:text-zinc-500">
+                    Publish your edits & bookmarks to everyone viewing this PDF.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSaveNameModal(false)}
+                className="p-2 text-white/50 hover:text-white rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmSave} className="space-y-4 pt-4">
+              <div>
+                <label className="block text-xs font-medium text-white/80 dark:text-white/80 light:text-zinc-700 mb-1.5">
+                  Enter Your Name *
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40 dark:text-white/40 light:text-zinc-400" />
+                  <input
+                    autoFocus
+                    type="text"
+                    required
+                    placeholder="e.g. Rahul, Sneha, Alex"
+                    value={inputAuthorName}
+                    onChange={(e) => setInputAuthorName(e.target.value)}
+                    className="w-full bg-pitch dark:bg-pitch light:bg-zinc-50 border border-white/20 dark:border-white/20 light:border-zinc-300 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white dark:text-white light:text-zinc-900 placeholder-white/30 focus:outline-none focus:border-white"
+                  />
+                </div>
+                <p className="text-[11px] text-white/40 dark:text-white/40 light:text-zinc-500 mt-1.5 leading-relaxed">
+                  Your name will be displayed in the round animated badge beside the document toolbar so other cohort members know who marked these study notes.
+                </p>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-white/10 dark:border-white/10 light:border-zinc-200">
+                <button
+                  type="button"
+                  onClick={() => setShowSaveNameModal(false)}
+                  className="px-4 py-2 text-xs text-white/50 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!inputAuthorName.trim() || isSaving}
+                  className="px-5 py-2.5 bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white text-xs font-bold rounded-xl hover:bg-white/90 active:scale-95 transition-all shadow-glow flex items-center gap-2 disabled:opacity-40"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSaving ? 'Saving...' : 'Save & Broadcast'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5. CONTRIBUTORS HISTORY MODAL */}
+      {showContributorsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-md bg-[#0c0c0e] dark:bg-[#0c0c0e] light:bg-white border border-white/20 dark:border-white/20 light:border-zinc-300 rounded-3xl shadow-2xl p-6 sm:p-7 overflow-hidden text-white dark:text-white light:text-zinc-900 animate-scale-up">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10 dark:border-white/10 light:border-zinc-200">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-400 via-indigo-500 to-emerald-400 p-[1.5px] flex items-center justify-center shadow-glow">
+                  <div className="w-full h-full rounded-full bg-black flex items-center justify-center text-xs font-bold text-white uppercase font-mono">
+                    {contributors[0]?.name?.slice(0, 2).toUpperCase() || 'SB'}
+                  </div>
+                </div>
+                <div>
+                  <h2 className="text-base font-bold tracking-tight">PDF Contributors</h2>
+                  <p className="text-xs text-white/50 dark:text-white/50 light:text-zinc-500">
+                    Cohort peers who saved annotations on this document.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowContributorsModal(false)}
+                className="p-2 text-white/50 hover:text-white rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="py-4 space-y-2.5 max-h-64 overflow-y-auto">
+              {contributors.map((contrib, idx) => (
+                <div
+                  key={`${contrib.name}_${idx}`}
+                  className="flex items-center justify-between p-3 rounded-2xl bg-surface/70 dark:bg-surface/70 light:bg-zinc-100 border border-white/10 dark:border-white/10 light:border-zinc-200"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-400 to-emerald-400 p-[1.5px] flex-shrink-0">
+                      <div className="w-full h-full rounded-full bg-black flex items-center justify-center text-[10px] font-bold text-white uppercase font-mono">
+                        {contrib.name.slice(0, 2).toUpperCase()}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-white dark:text-white light:text-zinc-900">
+                        {contrib.name}
+                      </div>
+                      <div className="text-[10px] font-mono text-white/40 dark:text-white/40 light:text-zinc-500">
+                        {formatTimeAgo(contrib.savedAt)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {contrib.strokeCount !== undefined && contrib.strokeCount > 0 && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/10 dark:bg-white/10 light:bg-zinc-200 text-white/70 dark:text-white/70 light:text-zinc-700">
+                      {contrib.strokeCount} marks
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-3 border-t border-white/10 dark:border-white/10 light:border-zinc-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowContributorsModal(false)}
+                className="px-4 py-2 bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white text-xs font-bold rounded-xl hover:bg-white/90 transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. TOAST SUCCESS NOTIFICATION */}
+      {saveSuccessMessage && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white text-xs font-semibold shadow-2xl flex items-center gap-2 border border-white/20 animate-scale-up">
+          <CheckCircle2 className="w-4 h-4 text-emerald-500 stroke-[2.5]" />
+          <span>{saveSuccessMessage}</span>
+        </div>
+      )}
+
     </div>
   );
 };

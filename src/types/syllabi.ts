@@ -53,6 +53,13 @@ export interface Bookmark {
   createdAt: string;
 }
 
+export interface DocumentContributor {
+  name: string;
+  savedAt: string;
+  avatarColor?: string;
+  strokeCount?: number;
+}
+
 export interface DocumentWithProgress {
   id: string;
   roomId: string;
@@ -69,6 +76,8 @@ export interface DocumentWithProgress {
     bookmarks: Bookmark[];
   };
   annotationCount?: number;
+  savedContributors?: DocumentContributor[];
+  savedAnnotations?: Record<number, PageAnnotationGeometry>;
 }
 
 export interface StudyRoomSummary {

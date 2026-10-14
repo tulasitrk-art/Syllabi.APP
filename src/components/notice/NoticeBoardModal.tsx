@@ -46,99 +46,151 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId }) => {
   const [newCategory, setNewCategory] = useState<'General' | 'Exam Alert' | 'Urgent' | 'Study Tip'>('General');
   const [isPinned, setIsPinned] = useState(false);
 
-  // Load from localStorage or initialize with cohort starter notices
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
+  // Load from shared server API (/api/notices) with real-time polling
+  const fetchNotices = async () => {
     try {
-      const stored = localStorage.getItem(`syllabi_notices_${roomId}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setNotices(parsed);
-          return;
+      const res = await fetch(`/api/notices?roomId=${encodeURIComponent(roomId)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (Array.isArray(json?.notices)) {
+          setNotices(json.notices);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(`syllabi_notices_${roomId}`, JSON.stringify(json.notices));
+          }
         }
       }
-    } catch {
-      // fallback
-    }
-
-    // Default starter notices
-    const initialNotices: NoticeItem[] = [
-      {
-        id: 'notice-1',
-        title: 'Welcome to the Cohort Study Room!',
-        content: 'Use this Notice Board to pass information, share exam tips, coordinate revision schedules, or ask cohort peers questions.',
-        author: 'StudyBot Robo',
-        category: 'Study Tip',
-        createdAt: new Date(Date.now() - 3600000).toISOString(),
-        likes: 4,
-        isPinned: true,
-      },
-      {
-        id: 'notice-2',
-        title: 'Syllabus Coverage: Unit 1 & Unit 2 Exam Targets',
-        content: 'Check the Syllabus Document Library below. Both Java and AI Unit-1 lecture notes are uploaded and ready for annotation.',
-        author: 'Academic Coordinator',
-        category: 'Exam Alert',
-        createdAt: new Date(Date.now() - 7200000).toISOString(),
-        likes: 6,
-      },
-    ];
-
-    setNotices(initialNotices);
-    localStorage.setItem(`syllabi_notices_${roomId}`, JSON.stringify(initialNotices));
-  }, [roomId]);
-
-  const saveNotices = (updated: NoticeItem[]) => {
-    setNotices(updated);
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(`syllabi_notices_${roomId}`, JSON.stringify(updated));
-      } catch (e) {
-        console.warn('Could not save notices:', e);
-      }
+    } catch (err) {
+      console.warn('Could not fetch notices from server:', err);
     }
   };
 
-  const handleCreateNotice = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(`syllabi_notices_${roomId}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setNotices(parsed);
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // Initial fetch
+    fetchNotices();
+
+    // 2-second real-time polling for online cohort sync
+    const interval = setInterval(fetchNotices, 2000);
+
+    // Cross-tab broadcast channel
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        bc = new BroadcastChannel(`syllabi_notices_${roomId}`);
+        bc.onmessage = (e) => {
+          if (e.data?.type === 'NOTICES_UPDATED') {
+            fetchNotices();
+          }
+        };
+      }
+    } catch {}
+
+    return () => {
+      clearInterval(interval);
+      if (bc) bc.close();
+    };
+  }, [roomId]);
+
+  const notifyBroadcast = () => {
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bc = new BroadcastChannel(`syllabi_notices_${roomId}`);
+        bc.postMessage({ type: 'NOTICES_UPDATED' });
+        bc.close();
+      }
+    } catch {}
+  };
+
+  const handleCreateNotice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim() || !newContent.trim()) return;
 
-    const notice: NoticeItem = {
-      id: `notice_${Date.now()}`,
+    const payload = {
       title: newTitle.trim(),
       content: newContent.trim(),
       author: newAuthor.trim() || 'Anonymous Student',
       category: newCategory,
-      createdAt: new Date().toISOString(),
-      likes: 0,
       isPinned,
+      roomId,
     };
 
-    const next = [notice, ...notices];
-    saveNotices(next);
+    // Optimistic local add
+    const tempNotice: NoticeItem = {
+      id: `notice_${Date.now()}`,
+      ...payload,
+      createdAt: new Date().toISOString(),
+      likes: 0,
+    };
+    setNotices((prev) => [tempNotice, ...prev]);
 
-    // Reset
+    // Reset form
     setNewTitle('');
     setNewContent('');
     setNewAuthor('');
     setNewCategory('General');
     setIsPinned(false);
     setIsCreating(false);
+
+    // POST to shared server
+    try {
+      const res = await fetch('/api/notices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.notice) {
+          setNotices((prev) => [data.notice, ...prev.filter((n) => n.id !== tempNotice.id)]);
+        }
+      }
+      notifyBroadcast();
+    } catch (err) {
+      console.warn('Failed to publish notice to server:', err);
+    }
   };
 
-  const handleLike = (id: string) => {
-    const next = notices.map((n) =>
-      n.id === id ? { ...n, likes: n.likes + 1 } : n
+  const handleLike = async (id: string) => {
+    setNotices((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, likes: n.likes + 1 } : n))
     );
-    saveNotices(next);
+
+    try {
+      await fetch(`/api/notices?id=${encodeURIComponent(id)}&action=like`, {
+        method: 'PATCH',
+      });
+      notifyBroadcast();
+    } catch (err) {
+      console.warn('Like sync error:', err);
+    }
   };
 
-  const handleDelete = (id: string) => {
-    const next = notices.filter((n) => n.id !== id);
-    saveNotices(next);
+  const handleDelete = async (id: string) => {
+    setNotices((prev) => prev.filter((n) => n.id !== id));
+
+    try {
+      await fetch(`/api/notices?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      notifyBroadcast();
+    } catch (err) {
+      console.warn('Delete notice error:', err);
+    }
   };
+
 
   const filteredNotices = notices.filter((n) => {
     if (activeFilter === 'ALL') return true;
