@@ -6,7 +6,7 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
-export type SubjectCode = 'DEVC' | 'ADS' | 'AI' | 'UHV' | 'JAVA';
+export type SubjectCode = 'DEVC' | 'ADS' | 'AI' | 'UHV' | 'JAVA' | 'SYLLABUS';
 
 export type DocumentStatus = 'UNREAD' | 'IN_PROGRESS' | 'READ' | 'NEEDS_REVISION';
 

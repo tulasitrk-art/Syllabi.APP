@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { SubjectCode } from '@/types/database';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -23,14 +24,14 @@ export interface SyllabusSection {
 }
 
 export interface SubjectDetail {
-  code: 'DEVC' | 'ADS' | 'AI' | 'UHV' | 'JAVA';
+  code: SubjectCode;
   name: string;
   description: string;
   badgeClass: string;
   sections: SyllabusSection[];
 }
 
-export const SUBJECT_METADATA: Record<'DEVC' | 'ADS' | 'AI' | 'UHV' | 'JAVA', SubjectDetail> = {
+export const SUBJECT_METADATA: Record<SubjectCode, SubjectDetail> = {
   AI: {
     code: 'AI',
     name: 'Artificial Intelligence',
@@ -193,6 +194,39 @@ export const SUBJECT_METADATA: Record<'DEVC' | 'ADS' | 'AI' | 'UHV' | 'JAVA', Su
         unit: 5,
         title: 'Holistic Professional Ethics',
         topics: ['Value-based Competence', 'Humanistic Constitution', 'Vision for Holistic Technologies', 'Universal Human Order'],
+      },
+    ],
+  },
+  SYLLABUS: {
+    code: 'SYLLABUS',
+    name: 'Curriculum & General Syllabus',
+    description: 'Official University Curriculum, Schemes & Academic Regulations',
+    badgeClass: 'border-white/20 bg-white/10 text-white',
+    sections: [
+      {
+        unit: 1,
+        title: 'Curriculum Framework & Outcomes',
+        topics: ['Academic Regulations', 'Course Objectives', 'Credit Allocation'],
+      },
+      {
+        unit: 2,
+        title: 'Prescribed Textbooks & Reference Repositories',
+        topics: ['Core Textbooks', 'Reference Manuals', 'E-Learning Links'],
+      },
+      {
+        unit: 3,
+        title: 'Laboratory Rubrics & Practical Schedule',
+        topics: ['Practical Syllabi', 'Continuous Evaluation', 'Project Guidelines'],
+      },
+      {
+        unit: 4,
+        title: 'Internal Assessment Norms & Midterm Patterns',
+        topics: ['Assessment Schedules', 'Assignment Schemes', 'Weightage Criteria'],
+      },
+      {
+        unit: 5,
+        title: 'End-Semester Examination Format',
+        topics: ['Question Paper Patterns', 'Grading Scales', 'Exam Protocol'],
       },
     ],
   },
