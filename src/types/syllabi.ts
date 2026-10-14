@@ -60,6 +60,17 @@ export interface DocumentContributor {
   strokeCount?: number;
 }
 
+export interface SavedDraft {
+  id: string;
+  authorName: string;
+  savedAt: string;
+  avatarColor?: string;
+  geometries: Record<number, PageAnnotationGeometry>;
+  bookmarks: Bookmark[];
+  status?: DocumentStatus;
+  strokeCount?: number;
+}
+
 export interface DocumentWithProgress {
   id: string;
   roomId: string;
@@ -78,6 +89,7 @@ export interface DocumentWithProgress {
   annotationCount?: number;
   savedContributors?: DocumentContributor[];
   savedAnnotations?: Record<number, PageAnnotationGeometry>;
+  savedDrafts?: SavedDraft[];
 }
 
 export interface StudyRoomSummary {

@@ -40,6 +40,8 @@ export function useSupabaseRoom(roomId: string) {
 
   // Set of permanently deleted document IDs to prevent background polling resurrection
   const deletedDocIdsRef = useRef<Set<string>>(new Set());
+  // In-flight / recent uploads guard to prevent any disappearing/blinking
+  const recentUploadsRef = useRef<Map<string, { doc: DocumentWithProgress; time: number }>>(new Map());
 
   // Check if live Supabase configuration is present
   const isSupabaseConfigured = Boolean(
@@ -65,21 +67,33 @@ export function useSupabaseRoom(roomId: string) {
       if (res.ok) {
         const json = await res.json();
         if (Array.isArray(json?.documents)) {
-          // Authoritative server reconciliation:
-          // Deleted documents on server are immediately removed on all clients!
           setDocuments((prev) => {
-            const updated = json.documents
-              .filter((doc: any) => !deletedDocIdsRef.current.has(doc.id))
-              .map((srvDoc: any) => {
-                const existing = prev.find((p) => p.id === srvDoc.id);
-                return {
-                  ...srvDoc,
-                  userProgress: existing?.userProgress || srvDoc.userProgress,
-                  savedContributors: srvDoc.savedContributors || existing?.savedContributors,
-                  savedAnnotations: srvDoc.savedAnnotations || existing?.savedAnnotations,
-                  annotationCount: srvDoc.annotationCount || existing?.annotationCount,
-                };
-              });
+            const srvDocs = json.documents.filter(
+              (doc: any) => !deletedDocIdsRef.current.has(doc.id)
+            );
+            const srvMap = new Map(srvDocs.map((d: any) => [d.id, d]));
+
+            const updated: DocumentWithProgress[] = srvDocs.map((srvDoc: any) => {
+              const existing = prev.find((p) => p.id === srvDoc.id);
+              return {
+                ...srvDoc,
+                userProgress: existing?.userProgress || srvDoc.userProgress,
+                savedContributors: srvDoc.savedContributors || existing?.savedContributors,
+                savedAnnotations: srvDoc.savedAnnotations || existing?.savedAnnotations,
+                annotationCount: srvDoc.annotationCount || existing?.annotationCount,
+              };
+            });
+
+            // Prevent disappearing/blinking: retain recent uploads until confirmed on disk
+            const now = Date.now();
+            recentUploadsRef.current.forEach((val, docId) => {
+              if (now - val.time > 30000) {
+                recentUploadsRef.current.delete(docId);
+              } else if (!srvMap.has(docId) && !deletedDocIdsRef.current.has(docId)) {
+                updated.unshift(val.doc);
+              }
+            });
+
             syncToLocalStorage(updated);
             return updated;
           });
@@ -153,7 +167,7 @@ export function useSupabaseRoom(roomId: string) {
 
     let isMounted = true;
 
-    async function fetchRoomData() {
+    async function fetchRoomMeta() {
       try {
         const { data: roomData } = await (supabase
           .from('study_rooms')
@@ -171,59 +185,12 @@ export function useSupabaseRoom(roomId: string) {
             createdAt: roomData.created_at,
           }));
         }
-
-        const { data: docsData } = await (supabase
-          .from('documents')
-          .select(`*, user_document_progress(*)`)
-          .eq('room_id', roomId)
-          .order('created_at', { ascending: false }) as any);
-
-        if (docsData && isMounted) {
-          const mapped: DocumentWithProgress[] = docsData.map((d: any) => {
-            const prog = d.user_document_progress?.[0];
-            return {
-              id: d.id,
-              roomId: d.room_id,
-              uploadedBy: d.uploaded_by,
-              title: d.title,
-              subject: d.subject as SubjectCode,
-              unit: d.unit,
-              syllabusTopic: d.syllabus_topic,
-              fileUrl: d.file_url,
-              totalPages: d.total_pages,
-              createdAt: d.created_at,
-              userProgress: prog
-                ? {
-                    status: prog.status as DocumentStatus,
-                    bookmarks: prog.bookmarks || [],
-                  }
-                : undefined,
-            };
-          });
-
-          setDocuments((prev) => {
-            const updated = mapped
-              .filter((doc) => !deletedDocIdsRef.current.has(doc.id))
-              .map((srvDoc) => {
-                const existing = prev.find((p) => p.id === srvDoc.id);
-                return {
-                  ...srvDoc,
-                  userProgress: existing?.userProgress || srvDoc.userProgress,
-                  savedContributors: srvDoc.savedContributors || existing?.savedContributors,
-                  savedAnnotations: srvDoc.savedAnnotations || existing?.savedAnnotations,
-                  annotationCount: srvDoc.annotationCount || existing?.annotationCount,
-                };
-              });
-            syncToLocalStorage(updated);
-            return updated;
-          });
-        }
       } catch (err) {
-        console.warn('Supabase fetch fallback:', err);
+        // Room fallback
       }
     }
 
-    fetchRoomData();
+    fetchRoomMeta();
 
     const channel = supabase
       .channel(`room:${roomId}`)
@@ -231,14 +198,14 @@ export function useSupabaseRoom(roomId: string) {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'documents', filter: `room_id=eq.${roomId}` },
         () => {
-          fetchRoomData();
+          fetchUniversalDocuments();
         }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'user_document_progress' },
         () => {
-          fetchRoomData();
+          fetchUniversalDocuments();
         }
       )
       .subscribe((status) => {
@@ -251,7 +218,7 @@ export function useSupabaseRoom(roomId: string) {
       isMounted = false;
       supabase.removeChannel(channel);
     };
-  }, [roomId, supabase, isSupabaseConfigured, syncToLocalStorage]);
+  }, [roomId, supabase, isSupabaseConfigured, fetchUniversalDocuments]);
 
   // Update document status checklist
   const updateDocumentStatus = useCallback(
@@ -438,6 +405,9 @@ export function useSupabaseRoom(roomId: string) {
       // Remove from tombstone set if re-uploaded
       deletedDocIdsRef.current.delete(createdDoc.id);
 
+      // Register in recent uploads guard to prevent any disappearing/blinking
+      recentUploadsRef.current.set(createdDoc.id, { doc: createdDoc, time: Date.now() });
+
       // 4. Update local state & storage
       setDocuments((prev) => {
         const next = [createdDoc!, ...prev.filter((d) => d.id !== createdDoc!.id)];
@@ -483,6 +453,7 @@ export function useSupabaseRoom(roomId: string) {
     async (documentId: string) => {
       // 1. Mark in tombstone set to prevent polling revival
       deletedDocIdsRef.current.add(documentId);
+      recentUploadsRef.current.delete(documentId);
       if (typeof window !== 'undefined') {
         try {
           const currentDeleted = JSON.parse(

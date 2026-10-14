@@ -7,6 +7,7 @@ import {
   PageAnnotationGeometry,
   Bookmark,
   DocumentContributor,
+  SavedDraft,
 } from '@/types/syllabi';
 import { DocumentStatus } from '@/types/database';
 import { AnnotationCanvas } from '@/components/annotation/AnnotationCanvas';
@@ -41,6 +42,8 @@ import {
   User,
   Sparkles,
   X,
+  Eye,
+  RotateCcw,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -96,22 +99,29 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const [bookmarkInputOpen, setBookmarkInputOpen] = useState<boolean>(false);
   const [bookmarkTitle, setBookmarkTitle] = useState<string>('');
 
-  // Universal Saved Contributors & Real-time Save State
+  // Universal Saved Contributors, Drafts & Real-time Save State
   const [contributors, setContributors] = useState<DocumentContributor[]>(
     doc.savedContributors || []
   );
+  const [drafts, setDrafts] = useState<SavedDraft[]>(doc.savedDrafts || []);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+  const [selectedDraftToLoad, setSelectedDraftToLoad] = useState<SavedDraft | null>(null);
+  const [showDraftModal, setShowDraftModal] = useState<boolean>(false);
   const [showSaveNameModal, setShowSaveNameModal] = useState<boolean>(false);
   const [showContributorsModal, setShowContributorsModal] = useState<boolean>(false);
   const [inputAuthorName, setInputAuthorName] = useState<string>('');
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
 
-  // Load annotations from shared server API
+  // Load annotations and drafts from shared server API
   const fetchDocAnnotations = useCallback(async () => {
     try {
       const res = await fetch(`/api/documents/${encodeURIComponent(doc.id)}/annotations`);
       if (res.ok) {
         const data = await res.json();
+        if (Array.isArray(data?.drafts) && data.drafts.length > 0) {
+          setDrafts(data.drafts);
+        }
         if (data?.geometries) {
           setPageGeometries((prev) => ({
             ...data.geometries,
@@ -189,8 +199,16 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 
       if (res.ok) {
         const json = await res.json();
-        if (json?.record && Array.isArray(json.record.contributors)) {
-          setContributors(json.record.contributors);
+        if (json?.record) {
+          if (Array.isArray(json.record.contributors)) {
+            setContributors(json.record.contributors);
+          }
+          if (Array.isArray(json.record.drafts)) {
+            setDrafts(json.record.drafts);
+          }
+          if (json.record.activeDraftId) {
+            setActiveDraftId(json.record.activeDraftId);
+          }
         }
       }
 
@@ -203,13 +221,40 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         }
       } catch {}
 
-      setSaveSuccessMessage(`Annotations saved by ${author}! Visible to all cohort users.`);
-      setTimeout(() => setSaveSuccessMessage(null), 4000);
+      setSaveSuccessMessage(`Saved under your name (${author})! All cohort peers can now draft & view your edited PDF.`);
+      setTimeout(() => setSaveSuccessMessage(null), 4500);
     } catch (err) {
       console.warn('Error saving annotations:', err);
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleOpenDraftPrompt = (draft: SavedDraft) => {
+    setSelectedDraftToLoad(draft);
+    setShowDraftModal(true);
+  };
+
+  const handleApplyDraft = (draft: SavedDraft) => {
+    setPageGeometries(draft.geometries || {});
+    if (Array.isArray(draft.bookmarks)) {
+      setBookmarks(draft.bookmarks);
+    }
+    if (draft.status) {
+      setStatus(draft.status);
+    }
+    setActiveDraftId(draft.id);
+    setShowDraftModal(false);
+    setSaveSuccessMessage(`Drafted & displaying ${draft.authorName}'s edited PDF!`);
+    setTimeout(() => setSaveSuccessMessage(null), 4000);
+  };
+
+  const handleResetToCleanOriginal = () => {
+    setPageGeometries({});
+    setActiveDraftId(null);
+    setShowDraftModal(false);
+    setSaveSuccessMessage('Switched to clean original PDF without annotations.');
+    setTimeout(() => setSaveSuccessMessage(null), 3500);
   };
 
 
@@ -457,6 +502,27 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             />
           </div>
 
+          {/* VISIBLE BOOKMARK SYMBOL ON PAGE (When user bookmarked this page) */}
+          {currentBookmark && (
+            <div className="absolute -top-3 right-6 sm:right-10 z-20 pointer-events-auto flex flex-col items-center group animate-bounce-short">
+              <div
+                className="relative bg-gradient-to-b from-amber-400 via-amber-500 to-amber-600 text-black px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-b-xl shadow-2xl border-t-2 border-amber-300 flex items-center gap-2 cursor-pointer hover:brightness-110 active:scale-95 transition-all select-none"
+                onClick={() => setBookmarkInputOpen(true)}
+                title={`Bookmarked page ${currentPage}: "${currentBookmark.title}". Click to edit.`}
+              >
+                <BookmarkIcon className="w-4 h-4 fill-black text-black stroke-[2.5]" />
+                <span className="text-xs font-black tracking-tight uppercase max-w-[150px] truncate">
+                  {currentBookmark.title}
+                </span>
+                <span className="text-[10px] font-mono font-bold bg-black/20 px-1.5 py-0.5 rounded">
+                  p.{currentPage}
+                </span>
+              </div>
+              {/* Decorative ribbon swallowtail notch */}
+              <div className="w-0 h-0 border-l-[15px] border-l-transparent border-r-[15px] border-r-transparent border-t-[8px] border-t-amber-600 -mt-[1px]" />
+            </div>
+          )}
+
           {/* DYNAMIC ANNOTATION LAYER (z-10): TRANSPARENT OVERLAY RULE */}
           <div className={`absolute inset-0 z-10 ${
             activeTool === 'select' || (isTouchMode && activeTool !== 'pen' && activeTool !== 'highlighter')
@@ -695,42 +761,106 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             onClick={() => setShowSaveNameModal(true)}
             disabled={isSaving}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white text-xs font-bold hover:bg-white/90 active:scale-95 transition-all shadow-glow disabled:opacity-50"
-            title="Save pen strokes, highlights, notes & bookmarks for all cohort users"
+            title="Save pen strokes, highlights, notes & bookmarks under your name"
           >
             <Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-spin' : ''}`} />
             <span>{isSaving ? 'Saving...' : 'Save'}</span>
           </button>
 
-          {/* ROUND ANIMATED ICON WITH USER NAME WHO SAVED (POSITIONED AFTER TOUCH MODE) */}
-          {contributors.length > 0 && (
-            <div
-              onClick={() => setShowContributorsModal(true)}
-              className="flex items-center gap-2 px-2.5 py-1.5 rounded-2xl bg-surface dark:bg-surface light:bg-zinc-100 border border-white/20 dark:border-white/20 light:border-zinc-300 hover:border-white/50 cursor-pointer transition-all shadow-sm group active:scale-95"
-              title={`Saved by ${contributors[0].name}. Click to view cohort annotation history.`}
-            >
-              {/* Round Animated Icon with glowing pulse ring */}
-              <div className="relative w-6 h-6 flex items-center justify-center flex-shrink-0">
-                <span className="absolute -inset-0.5 rounded-full bg-cyan-400/60 animate-ping opacity-75" />
-                <div className="relative w-6 h-6 rounded-full bg-gradient-to-tr from-cyan-400 via-indigo-500 to-emerald-400 p-[1.5px] shadow-sm">
-                  <div className="w-full h-full rounded-full bg-black flex items-center justify-center text-[9px] font-bold text-white uppercase font-mono">
-                    {contributors[0].name.slice(0, 2).toUpperCase()}
+          {/* ROUND ANIMATED ICONS FOR CONTRIBUTORS / SAVED DRAFTS (AFTER TOUCH MODE) */}
+          {drafts.length > 0 ? (
+            <div className="flex items-center gap-1.5 overflow-x-auto max-w-[280px] sm:max-w-md py-0.5 no-scrollbar">
+              {drafts.slice(0, 3).map((d) => {
+                const isActive = activeDraftId === d.id;
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => handleOpenDraftPrompt(d)}
+                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-2xl border transition-all shadow-sm group active:scale-95 flex-shrink-0 ${
+                      isActive
+                        ? 'bg-amber-400/10 dark:bg-amber-400/10 light:bg-amber-100/70 border-amber-400/50 text-amber-300 dark:text-amber-300 light:text-amber-900 shadow-glow'
+                        : 'bg-surface dark:bg-surface light:bg-zinc-100 border-white/20 dark:border-white/20 light:border-zinc-300 hover:border-white/50 text-white dark:text-white light:text-zinc-900'
+                    }`}
+                    title={`Saved by ${d.authorName} (${d.strokeCount || 0} marks). Click to draft and view their edited PDF.`}
+                  >
+                    {/* Round Animated Icon with glowing pulse ring */}
+                    <div className="relative w-6 h-6 flex items-center justify-center flex-shrink-0">
+                      <span className={`absolute -inset-0.5 rounded-full ${isActive ? 'bg-amber-400/70' : 'bg-cyan-400/60'} animate-ping opacity-75`} />
+                      <div className={`relative w-6 h-6 rounded-full p-[1.5px] shadow-sm ${
+                        isActive
+                          ? 'bg-gradient-to-tr from-amber-400 via-orange-500 to-yellow-300'
+                          : 'bg-gradient-to-tr from-cyan-400 via-indigo-500 to-emerald-400'
+                      }`}>
+                        <div className="w-full h-full rounded-full bg-black flex items-center justify-center text-[9px] font-bold text-white uppercase font-mono">
+                          {d.authorName.slice(0, 2).toUpperCase()}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Saved User Name Display */}
+                    <div className="flex items-center gap-1.5 text-left">
+                      <span className="text-[10px] font-mono text-white/50 dark:text-white/50 light:text-zinc-500 hidden sm:inline">
+                        {isActive ? 'Active Draft:' : 'Draft by'}
+                      </span>
+                      <span className="text-xs font-bold truncate max-w-[85px] sm:max-w-[100px]">
+                        {d.authorName}
+                      </span>
+                    </div>
+
+                    {/* Live indicator dot */}
+                    <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-amber-400' : 'bg-emerald-400'} animate-pulse`} />
+                  </button>
+                );
+              })}
+
+              {drafts.length > 3 && (
+                <button
+                  type="button"
+                  onClick={() => setShowContributorsModal(true)}
+                  className="px-2 py-1 text-[11px] font-mono rounded-xl bg-white/10 hover:bg-white/20 text-white/70"
+                >
+                  +{drafts.length - 3} more
+                </button>
+              )}
+            </div>
+          ) : (
+            contributors.length > 0 && (
+              <div
+                onClick={() => {
+                  const fallbackDraft: SavedDraft = {
+                    id: 'draft_default',
+                    authorName: contributors[0].name,
+                    savedAt: contributors[0].savedAt,
+                    geometries: pageGeometries,
+                    bookmarks,
+                    status,
+                    strokeCount: contributors[0].strokeCount || 0,
+                  };
+                  handleOpenDraftPrompt(fallbackDraft);
+                }}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-2xl bg-surface dark:bg-surface light:bg-zinc-100 border border-white/20 dark:border-white/20 light:border-zinc-300 hover:border-white/50 cursor-pointer transition-all shadow-sm group active:scale-95 flex-shrink-0"
+                title={`Saved by ${contributors[0].name}. Click to draft and view their edited PDF.`}
+              >
+                <div className="relative w-6 h-6 flex items-center justify-center flex-shrink-0">
+                  <span className="absolute -inset-0.5 rounded-full bg-cyan-400/60 animate-ping opacity-75" />
+                  <div className="relative w-6 h-6 rounded-full bg-gradient-to-tr from-cyan-400 via-indigo-500 to-emerald-400 p-[1.5px] shadow-sm">
+                    <div className="w-full h-full rounded-full bg-black flex items-center justify-center text-[9px] font-bold text-white uppercase font-mono">
+                      {contributors[0].name.slice(0, 2).toUpperCase()}
+                    </div>
                   </div>
                 </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-mono text-white/50 dark:text-white/50 light:text-zinc-500 hidden sm:inline">
+                    Draft by
+                  </span>
+                  <span className="text-xs font-bold text-white dark:text-white light:text-zinc-900 max-w-[100px] truncate">
+                    {contributors[0].name}
+                  </span>
+                </div>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               </div>
-
-              {/* Saved User Name Display */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-mono text-white/50 dark:text-white/50 light:text-zinc-500 hidden sm:inline">
-                  Saved by
-                </span>
-                <span className="text-xs font-bold text-white dark:text-white light:text-zinc-900 max-w-[110px] truncate">
-                  {contributors[0].name}
-                </span>
-              </div>
-
-              {/* Live indicator dot */}
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            </div>
+            )
           )}
         </div>
 
@@ -852,7 +982,94 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         </div>
       )}
 
-      {/* 5. CONTRIBUTORS HISTORY MODAL */}
+      {/* 5. LOAD / DRAFT EDITED PDF MODAL */}
+      {showDraftModal && selectedDraftToLoad && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-md bg-[#0c0c0e] dark:bg-[#0c0c0e] light:bg-white border border-white/20 dark:border-white/20 light:border-zinc-300 rounded-3xl shadow-2xl p-6 sm:p-7 overflow-hidden text-white dark:text-white light:text-zinc-900 animate-scale-up">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10 dark:border-white/10 light:border-zinc-200">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-cyan-400 via-indigo-500 to-emerald-400 p-[2px] flex items-center justify-center shadow-glow">
+                  <div className="w-full h-full rounded-2xl bg-black flex items-center justify-center text-xs font-bold text-white uppercase font-mono">
+                    {selectedDraftToLoad.authorName.slice(0, 2).toUpperCase()}
+                  </div>
+                </div>
+                <div>
+                  <h2 className="text-base font-bold tracking-tight">
+                    Draft by {selectedDraftToLoad.authorName}
+                  </h2>
+                  <p className="text-xs text-white/50 dark:text-white/50 light:text-zinc-500">
+                    Saved {formatTimeAgo(selectedDraftToLoad.savedAt)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDraftModal(false)}
+                className="p-2 text-white/50 hover:text-white rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="py-4 space-y-3">
+              <p className="text-xs text-white/80 dark:text-white/80 light:text-zinc-700 leading-relaxed">
+                <strong className="text-white dark:text-white light:text-zinc-900">{selectedDraftToLoad.authorName}</strong> edited this PDF with annotations, pen strokes, highlights, and bookmarks. Would you like to draft and view their version?
+              </p>
+
+              <div className="grid grid-cols-2 gap-2 p-3 rounded-2xl bg-surface/70 dark:bg-surface/70 light:bg-zinc-100 border border-white/10 dark:border-white/10 light:border-zinc-200 text-xs">
+                <div>
+                  <span className="text-[10px] uppercase font-mono text-white/40 dark:text-white/40 light:text-zinc-500 block">
+                    Annotations & Marks
+                  </span>
+                  <span className="font-semibold text-white dark:text-white light:text-zinc-900">
+                    {selectedDraftToLoad.strokeCount || 0} items
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-mono text-white/40 dark:text-white/40 light:text-zinc-500 block">
+                    Page Bookmarks
+                  </span>
+                  <span className="font-semibold text-white dark:text-white light:text-zinc-900">
+                    {selectedDraftToLoad.bookmarks?.length || 0} pages
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-white/10 dark:border-white/10 light:border-zinc-200 flex flex-col sm:flex-row items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={handleResetToCleanOriginal}
+                className="w-full sm:w-auto px-3 py-2 text-xs text-white/50 hover:text-white flex items-center justify-center gap-1.5 transition-colors"
+                title="Revert to clean untouched PDF"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>View Clean Original</span>
+              </button>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowDraftModal(false)}
+                  className="px-3.5 py-2 text-xs text-white/50 hover:text-white rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyDraft(selectedDraftToLoad)}
+                  className="px-4 py-2 bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white text-xs font-bold rounded-xl hover:bg-white/90 active:scale-95 transition-all shadow-glow flex items-center gap-2"
+                >
+                  <Eye className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>Draft & View This Version</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. CONTRIBUTORS HISTORY MODAL */}
       {showContributorsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
           <div className="relative w-full max-w-md bg-[#0c0c0e] dark:bg-[#0c0c0e] light:bg-white border border-white/20 dark:border-white/20 light:border-zinc-300 rounded-3xl shadow-2xl p-6 sm:p-7 overflow-hidden text-white dark:text-white light:text-zinc-900 animate-scale-up">
@@ -880,34 +1097,64 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             </div>
 
             <div className="py-4 space-y-2.5 max-h-64 overflow-y-auto">
-              {contributors.map((contrib, idx) => (
-                <div
-                  key={`${contrib.name}_${idx}`}
-                  className="flex items-center justify-between p-3 rounded-2xl bg-surface/70 dark:bg-surface/70 light:bg-zinc-100 border border-white/10 dark:border-white/10 light:border-zinc-200"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-400 to-emerald-400 p-[1.5px] flex-shrink-0">
-                      <div className="w-full h-full rounded-full bg-black flex items-center justify-center text-[10px] font-bold text-white uppercase font-mono">
-                        {contrib.name.slice(0, 2).toUpperCase()}
+              {contributors.map((contrib, idx) => {
+                const matchingDraft = drafts.find(
+                  (d) => d.authorName.toLowerCase() === contrib.name.toLowerCase()
+                );
+                return (
+                  <div
+                    key={`${contrib.name}_${idx}`}
+                    className="flex items-center justify-between p-3 rounded-2xl bg-surface/70 dark:bg-surface/70 light:bg-zinc-100 border border-white/10 dark:border-white/10 light:border-zinc-200"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-400 to-emerald-400 p-[1.5px] flex-shrink-0">
+                        <div className="w-full h-full rounded-full bg-black flex items-center justify-center text-[10px] font-bold text-white uppercase font-mono">
+                          {contrib.name.slice(0, 2).toUpperCase()}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-white dark:text-white light:text-zinc-900">
+                          {contrib.name}
+                        </div>
+                        <div className="text-[10px] font-mono text-white/40 dark:text-white/40 light:text-zinc-500">
+                          {formatTimeAgo(contrib.savedAt)}
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <div className="text-xs font-bold text-white dark:text-white light:text-zinc-900">
-                        {contrib.name}
-                      </div>
-                      <div className="text-[10px] font-mono text-white/40 dark:text-white/40 light:text-zinc-500">
-                        {formatTimeAgo(contrib.savedAt)}
-                      </div>
+
+                    <div className="flex items-center gap-2">
+                      {contrib.strokeCount !== undefined && contrib.strokeCount > 0 && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/10 dark:bg-white/10 light:bg-zinc-200 text-white/70 dark:text-white/70 light:text-zinc-700">
+                          {contrib.strokeCount} marks
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowContributorsModal(false);
+                          if (matchingDraft) {
+                            handleOpenDraftPrompt(matchingDraft);
+                          } else {
+                            const fallback: SavedDraft = {
+                              id: `draft_${contrib.name.toLowerCase()}`,
+                              authorName: contrib.name,
+                              savedAt: contrib.savedAt,
+                              geometries: pageGeometries,
+                              bookmarks,
+                              status,
+                              strokeCount: contrib.strokeCount || 0,
+                            };
+                            handleOpenDraftPrompt(fallback);
+                          }
+                        }}
+                        className="px-2.5 py-1 bg-white/10 hover:bg-white text-white hover:text-black rounded-lg text-[11px] font-semibold transition-all"
+                      >
+                        Draft
+                      </button>
                     </div>
                   </div>
-
-                  {contrib.strokeCount !== undefined && contrib.strokeCount > 0 && (
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/10 dark:bg-white/10 light:bg-zinc-200 text-white/70 dark:text-white/70 light:text-zinc-700">
-                      {contrib.strokeCount} marks
-                    </span>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="pt-3 border-t border-white/10 dark:border-white/10 light:border-zinc-200 flex justify-end">

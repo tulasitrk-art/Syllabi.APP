@@ -185,10 +185,23 @@ export function likeNotice(noticeId: string): any[] {
   return updated;
 }
 
-// ----------------- ANNOTATIONS & CONTRIBUTORS -----------------
+// ----------------- ANNOTATIONS, DRAFTS & CONTRIBUTORS -----------------
+
+export interface SavedDraft {
+  id: string;
+  authorName: string;
+  savedAt: string;
+  avatarColor: string;
+  geometries: Record<number, any>;
+  bookmarks: any[];
+  status?: string;
+  strokeCount: number;
+}
 
 export interface DocAnnotationsRecord {
   docId: string;
+  drafts: SavedDraft[];
+  activeDraftId?: string;
   geometries: Record<number, any>; // pageNumber -> PageAnnotationGeometry
   contributors: Array<{ name: string; savedAt: string; avatarColor?: string; strokeCount?: number }>;
   bookmarks: any[];
@@ -200,6 +213,7 @@ export function getDocAnnotations(docId: string): DocAnnotationsRecord {
   ensureStorageReady();
   const defaultRecord: DocAnnotationsRecord = {
     docId,
+    drafts: [],
     geometries: {},
     contributors: [],
     bookmarks: [],
@@ -210,7 +224,12 @@ export function getDocAnnotations(docId: string): DocAnnotationsRecord {
     const annotPath = path.join(ANNOTATIONS_DIR, `${docId}.json`);
     if (fs.existsSync(annotPath)) {
       const data = fs.readFileSync(annotPath, 'utf-8');
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      return {
+        ...defaultRecord,
+        ...parsed,
+        drafts: parsed.drafts || [],
+      };
     }
   } catch (err) {
     console.warn(`Could not read annotations for ${docId}:`, err);
@@ -232,6 +251,9 @@ export function saveDocAnnotations(
   ensureStorageReady();
   const existing = getDocAnnotations(docId);
 
+  // Clean author name
+  const cleanName = (payload.authorName || 'Anonymous Student').trim();
+
   // Merge geometries
   const mergedGeometries = {
     ...existing.geometries,
@@ -246,8 +268,25 @@ export function saveDocAnnotations(
     }
   });
 
+  // Create or update this user's specific saved draft
+  const draftId = `draft_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+  const newDraft: SavedDraft = {
+    id: draftId,
+    authorName: cleanName,
+    savedAt: new Date().toISOString(),
+    avatarColor: payload.avatarColor || '#38bdf8',
+    geometries: payload.geometries,
+    bookmarks: payload.bookmarks !== undefined ? payload.bookmarks : existing.bookmarks,
+    status: payload.status || existing.status,
+    strokeCount: totalStrokes,
+  };
+
+  const existingDrafts = (existing.drafts || []).filter(
+    (d) => d.id !== draftId && d.authorName.toLowerCase() !== cleanName.toLowerCase()
+  );
+  const updatedDrafts = [newDraft, ...existingDrafts];
+
   // Update contributors list (prepend latest, avoid duplicate name flood)
-  const cleanName = (payload.authorName || 'Anonymous Student').trim();
   const existingContributors = existing.contributors.filter(
     (c) => c.name.toLowerCase() !== cleanName.toLowerCase()
   );
@@ -261,6 +300,8 @@ export function saveDocAnnotations(
 
   const updatedRecord: DocAnnotationsRecord = {
     docId,
+    drafts: updatedDrafts,
+    activeDraftId: draftId,
     geometries: mergedGeometries,
     contributors: updatedContributors,
     bookmarks: payload.bookmarks !== undefined ? payload.bookmarks : existing.bookmarks,
@@ -296,3 +337,4 @@ export function saveDocAnnotations(
 
   return updatedRecord;
 }
+
