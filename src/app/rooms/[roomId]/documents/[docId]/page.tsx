@@ -83,16 +83,16 @@ export default function DocumentStudioPage() {
       }
     }
 
-    if (doc) {
-      setIsChecking(false);
-    } else {
+    if (!doc) {
       checkDirectDocument();
+    } else {
+      setIsChecking(false);
     }
 
     return () => {
       isCancelled = true;
     };
-  }, [docId, roomId, doc]);
+  }, [docId, roomId]);
 
   // Loading state while checking document availability
   if (isChecking && !doc) {

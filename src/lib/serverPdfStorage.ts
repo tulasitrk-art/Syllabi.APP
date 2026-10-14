@@ -2,7 +2,9 @@ import fs from 'fs';
 import path from 'path';
 
 // Server-side persistent storage paths
-const STORAGE_DIR = process.env.NODE_ENV === 'production' ? '/tmp/syllabi_store' : path.join(process.cwd(), '.syllabi_store');
+const STORAGE_DIR = (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
+  ? '/tmp/syllabi_store'
+  : path.join(process.cwd(), '.syllabi_store');
 const DOCS_INDEX_FILE = path.join(STORAGE_DIR, 'documents.json');
 const NOTICES_INDEX_FILE = path.join(STORAGE_DIR, 'notices.json');
 const PDFS_DIR = path.join(STORAGE_DIR, 'pdfs');
@@ -313,14 +315,14 @@ export function saveDocAnnotations(
     const annotPath = path.join(ANNOTATIONS_DIR, `${docId}.json`);
     fs.writeFileSync(annotPath, JSON.stringify(updatedRecord, null, 2));
 
-    // Also update document index with contributor info, status, and bookmarks
+    // Also update document index with contributor info and drafts (keep base doc clean)
     const docs = getDocsIndex();
     const updatedDocs = docs.map((doc) => {
       if (doc.id === docId) {
         return {
           ...doc,
           savedContributors: updatedContributors,
-          savedAnnotations: mergedGeometries,
+          savedDrafts: updatedDrafts,
           userProgress: {
             status: payload.status || doc.userProgress?.status || 'IN_PROGRESS',
             bookmarks: payload.bookmarks !== undefined ? payload.bookmarks : (doc.userProgress?.bookmarks || []),

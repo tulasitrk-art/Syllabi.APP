@@ -97,7 +97,7 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
 
           try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 6000);
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
 
             const resp = await fetch(fetchUrl, { signal: controller.signal });
             clearTimeout(timeoutId);
@@ -111,12 +111,11 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
               }
             }
           } catch (e) {
-            console.warn('Network fetch fallback or timeout:', e);
+            console.warn('Network fetch error:', e);
           }
         }
 
-        // 4. Auto-generate crisp syllabus PDF if no binary file was stored
-        // This guarantees the PDF viewer ALWAYS opens and is visible!
+        // 4. Auto-generate crisp syllabus PDF only as a client-side viewing fallback if server file is missing
         if (!buffer || buffer.byteLength === 0) {
           const generated = generateSyllabusPdfBuffer({
             title: documentTitle || 'Syllabus Course Document',
@@ -128,22 +127,6 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
 
           buffer = generated;
           memoryBufferCache.set(docId, buffer.slice(0));
-          savePdfBlob(docId, buffer.slice(0)).catch(() => {});
-
-          // Inform server so other peers can view it too
-          try {
-            const blob = new Blob([buffer.slice(0)], { type: 'application/pdf' });
-            const formData = new FormData();
-            formData.append('file', blob, `${documentTitle || 'syllabus'}.pdf`);
-            formData.append('docId', docId);
-            formData.append('title', documentTitle || 'Syllabus Course Document');
-            formData.append('subject', subject || 'AI');
-            formData.append('unit', String(unit || 1));
-            formData.append('syllabusTopic', syllabusTopic || '');
-            fetch('/api/documents', { method: 'POST', body: formData }).catch(() => {});
-          } catch (e) {
-            // ignore
-          }
         }
 
         // Cache safe clone in RAM

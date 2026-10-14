@@ -27,7 +27,6 @@ export async function GET(
     });
 
     const generatedBuf = Buffer.from(generatedArrayBuffer);
-    savePdfToDisk(docId, generatedBuf);
     pdfBuffer = generatedBuf;
   }
 
@@ -36,7 +35,7 @@ export async function GET(
     headers: {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${docId}.pdf"`,
-      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
     },
   });
 }
