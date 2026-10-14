@@ -63,7 +63,11 @@ export function useSupabaseRoom(roomId: string) {
   // Fetch from Universal Server API route (/api/documents)
   const fetchUniversalDocuments = useCallback(async () => {
     try {
-      const res = await fetch(`/api/documents?roomId=${encodeURIComponent(roomId)}`, {
+      const clientDeleted = Array.from(deletedDocIdsRef.current).join(',');
+      const url = `/api/documents?roomId=${encodeURIComponent(roomId)}${
+        clientDeleted ? `&deletedIds=${encodeURIComponent(clientDeleted)}` : ''
+      }`;
+      const res = await fetch(url, {
         cache: 'no-store',
       });
       if (res.ok) {
@@ -73,7 +77,7 @@ export function useSupabaseRoom(roomId: string) {
         if (Array.isArray(json?.deletedIds)) {
           let hasNewDeleted = false;
           json.deletedIds.forEach((id: string) => {
-            if (!deletedDocIdsRef.current.has(id)) {
+            if (typeof id === 'string' && id && !deletedDocIdsRef.current.has(id)) {
               deletedDocIdsRef.current.add(id);
               hasNewDeleted = true;
             }
@@ -95,32 +99,53 @@ export function useSupabaseRoom(roomId: string) {
               (doc: any) => !deletedDocIdsRef.current.has(doc.id)
             );
 
-            // Clean up recent uploads that have now been confirmed on server
+            // Clean up confirmed uploads from recent uploads map
             const now = Date.now();
             const srvMap = new Map(srvDocs.map((d: any) => [d.id, d]));
             recentUploadsRef.current.forEach((val, docId) => {
-              if (srvMap.has(docId) || deletedDocIdsRef.current.has(docId) || now - val.time > 15000) {
+              if (srvMap.has(docId) || deletedDocIdsRef.current.has(docId) || now - val.time > 30000) {
                 recentUploadsRef.current.delete(docId);
               }
             });
 
-            // Build updated list from authoritative server docs
-            const updated: DocumentWithProgress[] = srvDocs.map((srvDoc: any) => {
-              return {
+            // 1. Start with server documents (which are verified not deleted)
+            const mergedMap = new Map<string, DocumentWithProgress>();
+            srvDocs.forEach((srvDoc: any) => {
+              mergedMap.set(srvDoc.id, {
                 ...srvDoc,
                 userProgress: srvDoc.userProgress || { status: 'UNREAD', bookmarks: [] },
                 savedContributors: srvDoc.savedContributors || [],
                 savedDrafts: srvDoc.savedDrafts || [],
                 savedAnnotations: srvDoc.savedAnnotations,
                 annotationCount: srvDoc.annotationCount || 0,
-              };
+              });
             });
 
-            // Retain only local in-flight uploads that were created within the last 15 seconds
-            recentUploadsRef.current.forEach((val, docId) => {
-              if (!deletedDocIdsRef.current.has(docId) && now - val.time < 15000 && !updated.some((u) => u.id === docId)) {
-                updated.unshift(val.doc);
+            // 2. CRITICAL ANTI-BLINKING / PERSISTENCE PRESERVATION:
+            // Any document in prev that was NOT marked deleted must be preserved!
+            // An alternate/cold serverless lambda returning [] must NEVER cause an active document to vanish or blink.
+            prev.forEach((prevDoc) => {
+              if (!deletedDocIdsRef.current.has(prevDoc.id)) {
+                if (!mergedMap.has(prevDoc.id)) {
+                  mergedMap.set(prevDoc.id, prevDoc);
+                }
               }
+            });
+
+            // 3. Retain any recent local in-flight uploads that were not deleted
+            recentUploadsRef.current.forEach((val, docId) => {
+              if (!deletedDocIdsRef.current.has(docId)) {
+                if (!mergedMap.has(docId)) {
+                  mergedMap.set(docId, val.doc);
+                }
+              }
+            });
+
+            // Sort newest first
+            const updated: DocumentWithProgress[] = Array.from(mergedMap.values()).sort((a, b) => {
+              const ta = new Date(a.createdAt || 0).getTime();
+              const tb = new Date(b.createdAt || 0).getTime();
+              return tb - ta;
             });
 
             // Anti-thrashing equality check: if length and contents haven't changed, retain reference
@@ -142,6 +167,28 @@ export function useSupabaseRoom(roomId: string) {
             }
 
             syncToLocalStorage(updated);
+
+            // If this lambda was cold (returned 0 documents) but client has verified active documents,
+            // seed the cold lambda in the background so all future requests to it succeed immediately
+            if (json.documents.length === 0 && updated.length > 0) {
+              updated.forEach((d) => {
+                fetch('/api/documents', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    docId: d.id,
+                    title: d.title,
+                    subject: d.subject,
+                    unit: d.unit,
+                    syllabusTopic: d.syllabusTopic,
+                    totalPages: d.totalPages,
+                    roomId,
+                    fileUrl: d.fileUrl,
+                  }),
+                }).catch(() => {});
+              });
+            }
+
             return updated;
           });
         }

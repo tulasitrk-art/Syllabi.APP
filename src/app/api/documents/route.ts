@@ -7,6 +7,7 @@ import {
   savePdfToDisk,
   deleteDocFromDisk,
   getDeletedDocIds,
+  markDocDeleted,
   updateDocProgress,
 } from '@/lib/serverPdfStorage';
 import { generateSyllabusPdfBuffer } from '@/lib/syllabusPdfGenerator';
@@ -20,6 +21,13 @@ export async function GET(request: NextRequest) {
     ensureStorageReady();
     const searchParams = request.nextUrl.searchParams;
     const roomId = searchParams.get('roomId') || 'room-demo';
+    const clientDeleted = searchParams.get('deletedIds');
+    if (clientDeleted) {
+      clientDeleted.split(',').forEach((id) => {
+        const clean = id.trim();
+        if (clean) markDocDeleted(clean);
+      });
+    }
 
     // 1. If Supabase is configured, attempt fetch from Supabase first
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
