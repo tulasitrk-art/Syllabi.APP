@@ -44,9 +44,11 @@ import {
   X,
   Eye,
   RotateCcw,
+  Download,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { getPdfBlob } from '@/lib/pdfStorage';
 
 interface DocumentViewerProps {
   document: DocumentWithProgress;
@@ -137,6 +139,55 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showSaveNameModal, showDraftModal, showContributorsModal, bookmarkInputOpen, handleBackToLibrary]);
+
+  const handleDownloadPdf = async () => {
+    try {
+      let buffer: ArrayBuffer | null = await getPdfBlob(doc.id);
+      if (!buffer || buffer.byteLength === 0) {
+        if (doc.fileUrl && doc.fileUrl.startsWith('data:application/pdf;base64,')) {
+          const b64 = doc.fileUrl.split(',')[1];
+          const binaryStr = atob(b64);
+          const len = binaryStr.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+          buffer = bytes.buffer;
+        } else {
+          const fetchUrl = doc.fileUrl && !doc.fileUrl.startsWith('blob:')
+            ? doc.fileUrl
+            : `/api/documents/${encodeURIComponent(doc.id)}/file`;
+          const resp = await fetch(fetchUrl);
+          if (resp.ok) {
+            buffer = await resp.arrayBuffer();
+          }
+        }
+      }
+
+      if (buffer && buffer.byteLength > 0) {
+        const blob = new Blob([buffer], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = doc.title.endsWith('.pdf') ? doc.title : `${doc.title}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return;
+      }
+    } catch (e) {
+      console.warn('Download error:', e);
+    }
+
+    // Direct fallback
+    const a = document.createElement('a');
+    a.href = doc.fileUrl || `/api/documents/${encodeURIComponent(doc.id)}/file`;
+    a.download = doc.title.endsWith('.pdf') ? doc.title : `${doc.title}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
 
   // Load annotations and drafts from shared server API
   const fetchDocAnnotations = useCallback(async () => {
@@ -468,6 +519,17 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             <span className="hidden md:inline">
               {isSharedLayer ? 'Shared Layer' : 'Private'}
             </span>
+          </button>
+
+          {/* DOWNLOAD ORIGINAL PDF */}
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-2xl border border-white/15 dark:border-white/15 light:border-zinc-300 bg-interactive dark:bg-interactive light:bg-zinc-100 hover:bg-white dark:hover:bg-white light:hover:bg-black hover:text-black dark:hover:text-black light:hover:text-white text-white/80 dark:text-white/80 light:text-zinc-700 transition-all active:scale-95 shadow-sm"
+            title={`Download "${doc.title}" PDF`}
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Download</span>
           </button>
 
           {/* PERMANENT DELETE BUTTON */}

@@ -164,9 +164,92 @@ export async function POST(request: NextRequest) {
       pdfBuffer = Buffer.from(generated);
     }
 
+    // Accurately detect page count from real PDF binary
+    if (pdfBuffer && pdfBuffer.length > 0) {
+      try {
+        const text = pdfBuffer.toString('latin1');
+        const pageMatches = text.match(/\/Type\s*\/Page\b/g);
+        if (pageMatches && pageMatches.length > 0) {
+          totalPages = Math.max(totalPages, pageMatches.length);
+        }
+      } catch {}
+    }
+
     savePdfToDisk(docId, pdfBuffer);
 
-    const fileUrl = `/api/documents/${docId}/file`;
+    const pdfBase64 = pdfBuffer ? pdfBuffer.toString('base64') : '';
+    const pdfDataUrl = pdfBase64 && pdfBuffer.length < 15 * 1024 * 1024
+      ? `data:application/pdf;base64,${pdfBase64}`
+      : '';
+
+    let fileUrl = `/api/documents/${docId}/file`;
+
+    // 1. If Supabase is configured, upload the actual PDF to Supabase Storage bucket
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (supabaseUrl && supabaseUrl !== 'https://mock.supabase.co' && supabaseKey) {
+      try {
+        const supabase = createServerClient(supabaseUrl, supabaseKey, {
+          cookies: {
+            get() { return ''; },
+            set() {},
+            remove() {},
+          },
+        });
+
+        const bucketName = process.env.NEXT_PUBLIC_STORAGE_BUCKET_DOCS || 'syllabi-documents';
+        let storageSuccess = false;
+
+        try {
+          const { error: uploadError } = await supabase.storage
+            .from(bucketName)
+            .upload(`${docId}.pdf`, pdfBuffer, {
+              contentType: 'application/pdf',
+              upsert: true,
+            });
+
+          if (!uploadError) {
+            const { data: publicUrlData } = supabase.storage
+              .from(bucketName)
+              .getPublicUrl(`${docId}.pdf`);
+
+            if (publicUrlData?.publicUrl) {
+              fileUrl = publicUrlData.publicUrl;
+              storageSuccess = true;
+            }
+          } else {
+            console.warn('Supabase storage upload error:', uploadError.message);
+          }
+        } catch (stErr) {
+          console.warn('Supabase storage upload attempt error:', stErr);
+        }
+
+        // If storage upload didn't yield a public URL, store the PDF data URL directly so every device gets the real PDF!
+        if (!storageSuccess && pdfDataUrl) {
+          fileUrl = pdfDataUrl;
+        }
+
+        await supabase.from('documents').upsert({
+          id: docId,
+          room_id: roomId,
+          uploaded_by: '00000000-0000-0000-0000-000000000000',
+          title,
+          subject,
+          unit,
+          syllabus_topic: syllabusTopic,
+          file_url: fileUrl,
+          total_pages: totalPages,
+        });
+      } catch (err) {
+        console.warn('Supabase DB sync skipped/failed:', err);
+      }
+    } else {
+      // If Supabase is not configured, attach the data URL so cross-device lambdas have the real file
+      if (pdfDataUrl) {
+        fileUrl = pdfDataUrl;
+      }
+    }
 
     const newDoc = {
       id: docId,
@@ -190,36 +273,6 @@ export async function POST(request: NextRequest) {
     const allDocs = getDocsIndex();
     const updated = [newDoc, ...allDocs.filter((d) => d.id !== docId)];
     saveDocsIndex(updated);
-
-    // 2. If Supabase is configured, sync to Supabase database too
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (supabaseUrl && supabaseUrl !== 'https://mock.supabase.co' && supabaseKey) {
-      try {
-        const supabase = createServerClient(supabaseUrl, supabaseKey, {
-          cookies: {
-            get() { return ''; },
-            set() {},
-            remove() {},
-          },
-        });
-
-        await supabase.from('documents').insert({
-          id: docId,
-          room_id: roomId,
-          uploaded_by: '00000000-0000-0000-0000-000000000000',
-          title,
-          subject,
-          unit,
-          syllabus_topic: syllabusTopic,
-          file_url: fileUrl,
-          total_pages: totalPages,
-        });
-      } catch (err) {
-        console.warn('Supabase DB sync skipped/failed:', err);
-      }
-    }
 
     return NextResponse.json({ success: true, document: newDoc });
   } catch (err: any) {

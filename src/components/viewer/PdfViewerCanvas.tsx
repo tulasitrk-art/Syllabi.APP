@@ -2,7 +2,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { getPdfBlob, savePdfBlob } from '@/lib/pdfStorage';
-import { generateSyllabusPdfBuffer } from '@/lib/syllabusPdfGenerator';
 import { Loader2, RefreshCw, Upload, Trash2, AlertCircle, FileText } from 'lucide-react';
 
 interface PdfViewerCanvasProps {
@@ -89,11 +88,30 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
           }
         }
 
-        // 3. If not locally cached, fetch from server API route
-        // Safeguard: NEVER fetch a dead `blob:` URL across reloads
+        // 3. If fileUrl is a base64 data URL, decode directly into ArrayBuffer
+        if (!buffer && fileUrl && fileUrl.startsWith('data:application/pdf;base64,')) {
+          try {
+            const b64 = fileUrl.split(',')[1];
+            const binaryStr = atob(b64);
+            const len = binaryStr.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+              bytes[i] = binaryStr.charCodeAt(i);
+            }
+            buffer = bytes.buffer;
+            memoryBufferCache.set(docId, buffer.slice(0));
+            savePdfBlob(docId, buffer.slice(0)).catch(() => {});
+          } catch (e) {
+            console.warn('Direct base64 decode error:', e);
+          }
+        }
+
+        // 4. If not locally cached, fetch from direct public URL or server API route
         if (!buffer) {
           const isDeadBlob = fileUrl && fileUrl.startsWith('blob:');
-          const fetchUrl = (!isDeadBlob && fileUrl) ? fileUrl : `/api/documents/${encodeURIComponent(docId)}/file`;
+          const fetchUrl = (!isDeadBlob && fileUrl && !fileUrl.startsWith('data:'))
+            ? fileUrl
+            : `/api/documents/${encodeURIComponent(docId)}/file`;
 
           try {
             const controller = new AbortController();
@@ -115,18 +133,9 @@ export const PdfViewerCanvas: React.FC<PdfViewerCanvasProps> = ({
           }
         }
 
-        // 4. Auto-generate crisp syllabus PDF only as a client-side viewing fallback if server file is missing
+        // 5. If buffer could not be loaded, throw informative error - NEVER replace with dummy syllabus
         if (!buffer || buffer.byteLength === 0) {
-          const generated = generateSyllabusPdfBuffer({
-            title: documentTitle || 'Syllabus Course Document',
-            subject: subject || 'AI',
-            unit: unit || 1,
-            syllabusTopic: syllabusTopic || 'Core Syllabus Foundations & Examination Targets',
-            totalPages: 1,
-          });
-
-          buffer = generated;
-          memoryBufferCache.set(docId, buffer.slice(0));
+          throw new Error('Unable to retrieve original PDF file from storage. Please check connection or re-upload.');
         }
 
         // Cache safe clone in RAM

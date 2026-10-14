@@ -27,6 +27,7 @@ import {
   FolderOpen,
   Trash2,
   Sparkles,
+  Download,
   X,
   DoorOpen,
   FolderPlus,
@@ -477,21 +478,11 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                 ? 'No syllabus documents in this room yet'
                 : 'No documents match the current filters'}
             </h3>
-            <p className="text-xs text-white/40 dark:text-white/40 light:text-zinc-500 max-w-sm mt-1 mb-5">
+            <p className="text-xs text-white/40 dark:text-white/40 light:text-zinc-500 max-w-sm mt-1 mb-2">
               {totalDocs === 0
-                ? 'Click "Upload Documents" in the top right to attach a PDF syllabus or curriculum.'
+                ? 'Use the "Upload Documents" button in the top navigation bar to add syllabus documents.'
                 : 'Try adjusting your subject or unit filters to view documents.'}
             </p>
-            {totalDocs === 0 && (
-              <button
-                type="button"
-                onClick={() => setIsUploadModalOpen(true)}
-                className="px-4 py-2 bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white text-xs font-bold rounded-xl hover:bg-white/90 active:scale-95 transition-all shadow-glow flex items-center gap-2"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                <span>Upload First Document</span>
-              </button>
-            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -566,6 +557,24 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2">
+                      {/* Download PDF button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const a = document.createElement('a');
+                          a.href = doc.fileUrl || `/api/documents/${doc.id}/file`;
+                          a.download = doc.title.endsWith('.pdf') ? doc.title : `${doc.title}.pdf`;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                        }}
+                        className="p-1.5 text-white/40 dark:text-white/40 light:text-zinc-500 hover:text-white dark:hover:text-white light:hover:text-black rounded-lg hover:bg-white/10 dark:hover:bg-white/10 light:hover:bg-zinc-200 transition-colors"
+                        title={`Download "${doc.title}"`}
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
+
                       {onDeleteDocument && (
                         <button
                           type="button"

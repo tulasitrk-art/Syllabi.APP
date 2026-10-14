@@ -419,6 +419,19 @@ export function useSupabaseRoom(roomId: string) {
 
       // 4. Fallback creation if offline or direct
       if (!createdDoc) {
+        let fallbackUrl = payload.fileUrl || `/api/documents/${clientDocId}/file`;
+        if (bufferToPersist && bufferToPersist.byteLength < 12 * 1024 * 1024) {
+          try {
+            const bytes = new Uint8Array(bufferToPersist);
+            let binary = '';
+            const chunkSize = 8192;
+            for (let i = 0; i < bytes.byteLength; i += chunkSize) {
+              binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunkSize)));
+            }
+            fallbackUrl = `data:application/pdf;base64,${btoa(binary)}`;
+          } catch {}
+        }
+
         createdDoc = {
           id: clientDocId,
           roomId,
@@ -427,7 +440,7 @@ export function useSupabaseRoom(roomId: string) {
           subject: payload.subject,
           unit: payload.unit,
           syllabusTopic: payload.syllabusTopic,
-          fileUrl: payload.fileUrl || `/api/documents/${clientDocId}/file`,
+          fileUrl: fallbackUrl,
           totalPages: payload.totalPages || 1,
           createdAt: new Date().toISOString(),
           userProgress: {
