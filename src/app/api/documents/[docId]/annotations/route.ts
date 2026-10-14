@@ -6,6 +6,9 @@ import {
 } from '@/lib/serverPdfStorage';
 import { createServerClient } from '@supabase/ssr';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 // GET /api/documents/[docId]/annotations
 export async function GET(
   request: NextRequest,

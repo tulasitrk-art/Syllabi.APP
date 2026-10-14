@@ -7,6 +7,9 @@ import {
   likeNotice,
 } from '@/lib/serverPdfStorage';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 // GET /api/notices?roomId=...
 export async function GET(request: NextRequest) {
   ensureStorageReady();

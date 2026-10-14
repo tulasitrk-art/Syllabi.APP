@@ -2,6 +2,9 @@ import { NextRequest } from 'next/server';
 import { getPdfFromDisk, savePdfToDisk, getDocsIndex } from '@/lib/serverPdfStorage';
 import { generateSyllabusPdfBuffer } from '@/lib/syllabusPdfGenerator';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { docId: string } }

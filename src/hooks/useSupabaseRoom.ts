@@ -63,36 +63,74 @@ export function useSupabaseRoom(roomId: string) {
   // Fetch from Universal Server API route (/api/documents)
   const fetchUniversalDocuments = useCallback(async () => {
     try {
-      const res = await fetch(`/api/documents?roomId=${encodeURIComponent(roomId)}`);
+      const res = await fetch(`/api/documents?roomId=${encodeURIComponent(roomId)}`, {
+        cache: 'no-store',
+      });
       if (res.ok) {
         const json = await res.json();
         if (Array.isArray(json?.documents)) {
           setDocuments((prev) => {
-            const srvDocs = json.documents.filter(
+            const srvDocs: any[] = json.documents.filter(
               (doc: any) => !deletedDocIdsRef.current.has(doc.id)
             );
+
+            // ANTI-BLINKS SAFEGUARD 1: If server momentarily returns 0 items but we already have documents loaded,
+            // never wipe out active documents.
+            if (srvDocs.length === 0 && prev.length > 0) {
+              return prev.filter((d) => !deletedDocIdsRef.current.has(d.id));
+            }
+
             const srvMap = new Map(srvDocs.map((d: any) => [d.id, d]));
 
+            // Build updated array from server docs
             const updated: DocumentWithProgress[] = srvDocs.map((srvDoc: any) => {
               const existing = prev.find((p) => p.id === srvDoc.id);
               return {
                 ...srvDoc,
                 userProgress: existing?.userProgress || srvDoc.userProgress,
                 savedContributors: srvDoc.savedContributors || existing?.savedContributors,
+                savedDrafts: srvDoc.savedDrafts || existing?.savedDrafts,
                 savedAnnotations: srvDoc.savedAnnotations || existing?.savedAnnotations,
                 annotationCount: srvDoc.annotationCount || existing?.annotationCount,
               };
             });
 
-            // Prevent disappearing/blinking: retain recent uploads until confirmed on disk
+            // ANTI-BLINKS SAFEGUARD 2: Keep any active documents currently in prev that were not deleted
+            prev.forEach((prevDoc) => {
+              if (!srvMap.has(prevDoc.id) && !deletedDocIdsRef.current.has(prevDoc.id)) {
+                if (!updated.some((u) => u.id === prevDoc.id)) {
+                  updated.push(prevDoc);
+                }
+              }
+            });
+
+            // Retain recent in-flight uploads until confirmed
             const now = Date.now();
             recentUploadsRef.current.forEach((val, docId) => {
-              if (now - val.time > 30000) {
-                recentUploadsRef.current.delete(docId);
-              } else if (!srvMap.has(docId) && !deletedDocIdsRef.current.has(docId)) {
+              if (now - val.time > 60000) {
+                if (srvMap.has(docId)) {
+                  recentUploadsRef.current.delete(docId);
+                }
+              }
+              if (!deletedDocIdsRef.current.has(docId) && !updated.some((u) => u.id === docId)) {
                 updated.unshift(val.doc);
               }
             });
+
+            // ANTI-BLINKS SAFEGUARD 3: If documents, progress, and contributors have not changed,
+            // return the existing prev reference to prevent React re-renders and visual flickering.
+            if (
+              prev.length === updated.length &&
+              prev.every((p, idx) =>
+                p.id === updated[idx]?.id &&
+                p.userProgress?.status === updated[idx]?.userProgress?.status &&
+                (p.annotationCount || 0) === (updated[idx]?.annotationCount || 0) &&
+                (p.savedContributors?.length || 0) === (updated[idx]?.savedContributors?.length || 0) &&
+                (p.savedDrafts?.length || 0) === (updated[idx]?.savedDrafts?.length || 0)
+              )
+            ) {
+              return prev;
+            }
 
             syncToLocalStorage(updated);
             return updated;
@@ -344,9 +382,13 @@ export function useSupabaseRoom(roomId: string) {
         });
       }
 
-      // 2. Upload to shared universal API route with file/blob
+      // 2. Pre-generate unified docId so client cache and server store stay 100% matched
+      const clientDocId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+      // 3. Upload to shared universal API route with file/blob
       try {
         const formData = new FormData();
+        formData.append('docId', clientDocId);
         if (payload.file) {
           formData.append('file', payload.file);
         } else if (bufferToPersist) {
@@ -375,18 +417,17 @@ export function useSupabaseRoom(roomId: string) {
         console.warn('Universal upload API warning:', err);
       }
 
-      // 3. Fallback creation if offline or direct
+      // 4. Fallback creation if offline or direct
       if (!createdDoc) {
-        const docId = `doc_${Date.now()}`;
         createdDoc = {
-          id: docId,
+          id: clientDocId,
           roomId,
-          uploadedBy: 'current-user',
+          uploadedBy: 'student-visitor',
           title: payload.title,
           subject: payload.subject,
           unit: payload.unit,
           syllabusTopic: payload.syllabusTopic,
-          fileUrl: payload.fileUrl || `/api/documents/${docId}/file`,
+          fileUrl: payload.fileUrl || `/api/documents/${clientDocId}/file`,
           totalPages: payload.totalPages || 1,
           createdAt: new Date().toISOString(),
           userProgress: {

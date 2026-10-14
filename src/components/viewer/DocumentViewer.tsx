@@ -46,6 +46,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 interface DocumentViewerProps {
   document: DocumentWithProgress;
@@ -110,6 +111,32 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const [inputAuthorName, setInputAuthorName] = useState<string>('');
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+
+  const router = useRouter();
+
+  const handleBackToLibrary = useCallback(() => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push(roomId === 'room-demo' ? '/' : `/rooms/${roomId}`);
+    }
+  }, [router, roomId]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === 'Escape' &&
+        !showSaveNameModal &&
+        !showDraftModal &&
+        !showContributorsModal &&
+        !bookmarkInputOpen
+      ) {
+        handleBackToLibrary();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showSaveNameModal, showDraftModal, showContributorsModal, bookmarkInputOpen, handleBackToLibrary]);
 
   // Load annotations and drafts from shared server API
   const fetchDocAnnotations = useCallback(async () => {
@@ -360,12 +387,22 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
       {/* 1. TOP NAVIGATION & STATUS BAR */}
       <header className="h-16 px-6 border-b border-white/10 dark:border-white/10 light:border-zinc-200 bg-surface/80 dark:bg-surface/80 light:bg-white/80 backdrop-blur-xl flex items-center justify-between z-30 flex-shrink-0">
         <div className="flex items-center gap-4">
-          <Link
-            href={`/rooms/${roomId}`}
-            className="flex items-center gap-1.5 text-xs text-white/60 dark:text-white/60 light:text-zinc-600 hover:text-white dark:hover:text-white light:hover:text-black px-3 py-1.5 rounded-xl border border-white/10 dark:border-white/10 light:border-zinc-300 bg-interactive dark:bg-interactive light:bg-zinc-100 transition-colors"
+          <button
+            type="button"
+            onClick={handleBackToLibrary}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white text-xs font-bold hover:bg-white/90 active:scale-95 transition-all shadow-glow"
+            title="Return back to Syllabus Document Library (Esc)"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Room Dashboard</span>
+            <ArrowLeft className="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>Back to Library</span>
+          </button>
+
+          <Link
+            href="/"
+            className="hidden sm:flex items-center gap-1 text-[11px] text-white/50 dark:text-white/50 light:text-zinc-500 hover:text-white dark:hover:text-white light:hover:text-black px-2 py-1 rounded-lg hover:bg-white/5 transition-colors"
+            title="Go to Home"
+          >
+            <span>Home</span>
           </Link>
 
           <div className="h-4 w-px bg-white/10 dark:bg-white/10 light:bg-zinc-300" />

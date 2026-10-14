@@ -121,11 +121,11 @@ export default function DocumentStudioPage() {
             records.
           </p>
           <Link
-            href={`/rooms/${roomId}`}
+            href={roomId === 'room-demo' ? '/' : `/rooms/${roomId}`}
             className="flex items-center gap-2 px-4 py-2 bg-white text-black text-xs font-semibold rounded-xl hover:bg-white/90 transition-all shadow-glow"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Return to Room Dashboard</span>
+            <span>Return to Syllabus Library</span>
           </Link>
         </div>
       </div>

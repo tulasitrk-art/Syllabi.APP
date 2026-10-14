@@ -9,62 +9,88 @@ import {
 } from '@/lib/serverPdfStorage';
 import { generateSyllabusPdfBuffer } from '@/lib/syllabusPdfGenerator';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 // GET /api/documents?roomId=...
 export async function GET(request: NextRequest) {
-  ensureStorageReady();
-  const searchParams = request.nextUrl.searchParams;
-  const roomId = searchParams.get('roomId') || 'room-demo';
+  try {
+    ensureStorageReady();
+    const searchParams = request.nextUrl.searchParams;
+    const roomId = searchParams.get('roomId') || 'room-demo';
 
-  // 1. If Supabase is configured, attempt fetch from Supabase first
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    // 1. If Supabase is configured, attempt fetch from Supabase first
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (supabaseUrl && supabaseUrl !== 'https://mock.supabase.co' && supabaseKey) {
-    try {
-      const supabase = createServerClient(supabaseUrl, supabaseKey, {
-        cookies: {
-          get() { return ''; },
-          set() {},
-          remove() {},
-        },
-      });
+    if (supabaseUrl && supabaseUrl !== 'https://mock.supabase.co' && supabaseKey) {
+      try {
+        const supabase = createServerClient(supabaseUrl, supabaseKey, {
+          cookies: {
+            get() { return ''; },
+            set() {},
+            remove() {},
+          },
+        });
 
-      const { data, error } = await supabase
-        .from('documents')
-        .select(`*, user_document_progress(*)`)
-        .eq('room_id', roomId)
-        .order('created_at', { ascending: false });
+        const { data, error } = await supabase
+          .from('documents')
+          .select(`*, user_document_progress(*)`)
+          .order('created_at', { ascending: false });
 
-      if (!error && Array.isArray(data) && data.length > 0) {
-        const mapped = data.map((d: any) => ({
-          id: d.id,
-          roomId: d.room_id,
-          uploadedBy: d.uploaded_by,
-          title: d.title,
-          subject: d.subject,
-          unit: d.unit,
-          syllabusTopic: d.syllabus_topic,
-          fileUrl: d.file_url,
-          totalPages: d.total_pages,
-          createdAt: d.created_at,
-          userProgress: d.user_document_progress?.[0]
-            ? {
-                status: d.user_document_progress[0].status,
-                bookmarks: d.user_document_progress[0].bookmarks || [],
-              }
-            : undefined,
-        }));
-        return NextResponse.json({ documents: mapped, source: 'supabase' });
+        if (!error && Array.isArray(data) && data.length > 0) {
+          const mapped = data.map((d: any) => ({
+            id: d.id,
+            roomId: d.room_id,
+            uploadedBy: d.uploaded_by,
+            title: d.title,
+            subject: d.subject,
+            unit: d.unit,
+            syllabusTopic: d.syllabus_topic,
+            fileUrl: d.file_url,
+            totalPages: d.total_pages,
+            createdAt: d.created_at,
+            userProgress: d.user_document_progress?.[0]
+              ? {
+                  status: d.user_document_progress[0].status,
+                  bookmarks: d.user_document_progress[0].bookmarks || [],
+                }
+              : undefined,
+          }));
+          return NextResponse.json({ documents: mapped, source: 'supabase' }, {
+            headers: {
+              'Cache-Control': 'no-store, no-cache, must-revalidate',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('Supabase documents fetch failed, using universal store:', err);
       }
-    } catch (err) {
-      console.warn('Supabase documents fetch failed, using universal store:', err);
     }
-  }
 
-  // 2. Return from Universal Server Store (accessible to every visitor)
-  const allDocs = getDocsIndex();
-  const roomDocs = allDocs.filter((doc) => doc.roomId === roomId);
-  return NextResponse.json({ documents: roomDocs, source: 'universal_store' });
+    // 2. Return from Universal Server Store (accessible to every visitor across devices, supporting 30+ documents)
+    const allDocs = getDocsIndex();
+    const sorted = [...allDocs].sort((a, b) => {
+      const ta = new Date(a.createdAt || 0).getTime();
+      const tb = new Date(b.createdAt || 0).getTime();
+      return tb - ta;
+    });
+
+    return NextResponse.json(
+      { documents: sorted, source: 'universal_store' },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      }
+    );
+  } catch (err: any) {
+    console.error('Error in GET /api/documents:', err);
+    // Even if an unexpected error occurs, return an empty array instead of 500 error
+    return NextResponse.json({ documents: [], error: err?.message || 'Server error' }, { status: 200 });
+  }
 }
 
 // POST /api/documents (Multipart / JSON Upload)
