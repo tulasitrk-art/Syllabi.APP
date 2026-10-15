@@ -13,7 +13,7 @@ import { DocumentStatus, SubjectCode } from '@/types/database';
 import { AnnotationCanvas } from '@/components/annotation/AnnotationCanvas';
 import { PdfViewerCanvas } from '@/components/viewer/PdfViewerCanvas';
 import { ThemeToggle } from '@/components/theme/ThemeProvider';
-import { STATUS_CONFIG, SUBJECT_METADATA, formatTimeAgo } from '@/lib/utils';
+import { STATUS_CONFIG, SUBJECT_METADATA, formatTimeAgo, formatUnitLabel } from '@/lib/utils';
 import {
   ChevronLeft,
   ChevronRight,
@@ -587,7 +587,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white/10 dark:bg-white/10 light:bg-zinc-200 text-white dark:text-white light:text-zinc-900 border border-white/20 dark:border-white/20 light:border-zinc-300 uppercase tracking-wider font-semibold">
-                {displaySubject} • Unit {doc.unit}
+                {displaySubject} • {formatUnitLabel(doc.unit, doc.title)}
               </span>
               <h1 className="text-sm font-medium text-white dark:text-white light:text-zinc-900 tracking-tight truncate max-w-sm">
                 {doc.title}

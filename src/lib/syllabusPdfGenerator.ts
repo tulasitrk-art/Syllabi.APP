@@ -27,7 +27,7 @@ export function generateSyllabusPdfBuffer(options: SyllabusPdfOptions): ArrayBuf
 
   const cleanTitle = escapePdfText(title);
   const cleanSubj = escapePdfText(subject);
-  const cleanUnit = escapePdfText(String(unit));
+  const cleanUnit = escapePdfText(unit === 6 ? 'Question Papers' : String(unit));
   const cleanTopic = escapePdfText(topic);
 
   // We build a valid PDF with totalPages pages

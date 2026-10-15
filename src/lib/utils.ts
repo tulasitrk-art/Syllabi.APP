@@ -63,6 +63,11 @@ export const SUBJECT_METADATA: Record<SubjectCode, SubjectDetail> = {
         title: 'Machine Learning & Neural Architectures',
         topics: ['Supervised Learning', 'Decision Trees', 'Perceptrons & Backpropagation', 'Deep Learning Foundations'],
       },
+      {
+        unit: 6,
+        title: 'Previous Years & Model Question Papers',
+        topics: ['End-Semester Examination Papers', 'Mid-Term Assessment Papers', 'Model Question Sets', 'Important Repeat Problems'],
+      },
     ],
   },
   ADS: {
@@ -95,6 +100,11 @@ export const SUBJECT_METADATA: Record<SubjectCode, SubjectDetail> = {
         unit: 5,
         title: 'NP-Completeness & Approximations',
         topics: ['Polynomial Reductions', 'Vertex Cover', 'Traveling Salesperson', 'Knapsack Approximations'],
+      },
+      {
+        unit: 6,
+        title: 'Previous Years & Model Question Papers',
+        topics: ['End-Semester Examination Papers', 'Mid-Term Assessment Papers', 'Model Question Sets', 'Important Repeat Problems'],
       },
     ],
   },
@@ -129,6 +139,11 @@ export const SUBJECT_METADATA: Record<SubjectCode, SubjectDetail> = {
         title: 'Advanced Graph Algorithms & Network Flows',
         topics: ['Shortest Paths (Dijkstra/Floyd-Warshall)', 'Maximum Flow & Min-Cut Theorem', 'Bipartite Matching', 'Connectivity & Cut Vertices', 'Applications in Computer Science'],
       },
+      {
+        unit: 6,
+        title: 'Previous Years & Model Question Papers',
+        topics: ['End-Semester Examination Papers', 'Mid-Term Assessment Papers', 'Model Question Sets', 'Important Repeat Problems'],
+      },
     ],
   },
   DEVC: {
@@ -161,6 +176,11 @@ export const SUBJECT_METADATA: Record<SubjectCode, SubjectDetail> = {
         unit: 5,
         title: 'Advanced Graph Algorithms & Network Flows',
         topics: ['Shortest Paths (Dijkstra/Floyd-Warshall)', 'Maximum Flow & Min-Cut Theorem', 'Bipartite Matching', 'Connectivity & Cut Vertices', 'Applications in Computer Science'],
+      },
+      {
+        unit: 6,
+        title: 'Previous Years & Model Question Papers',
+        topics: ['End-Semester Examination Papers', 'Mid-Term Assessment Papers', 'Model Question Sets', 'Important Repeat Problems'],
       },
     ],
   },
@@ -195,6 +215,11 @@ export const SUBJECT_METADATA: Record<SubjectCode, SubjectDetail> = {
         title: 'Microservices & Event-Driven Systems',
         topics: ['REST APIs & OpenAPI Spec', 'gRPC & Protocol Buffers', 'Apache Kafka Messaging', 'Resilience4j Circuit Breakers'],
       },
+      {
+        unit: 6,
+        title: 'Previous Years & Model Question Papers',
+        topics: ['End-Semester Examination Papers', 'Mid-Term Assessment Papers', 'Model Question Sets', 'Important Repeat Problems'],
+      },
     ],
   },
   UHV: {
@@ -227,6 +252,11 @@ export const SUBJECT_METADATA: Record<SubjectCode, SubjectDetail> = {
         unit: 5,
         title: 'Holistic Professional Ethics',
         topics: ['Value-based Competence', 'Humanistic Constitution', 'Vision for Holistic Technologies', 'Universal Human Order'],
+      },
+      {
+        unit: 6,
+        title: 'Previous Years & Model Question Papers',
+        topics: ['End-Semester Examination Papers', 'Mid-Term Assessment Papers', 'Model Question Sets', 'Important Repeat Problems'],
       },
     ],
   },
@@ -261,6 +291,11 @@ export const SUBJECT_METADATA: Record<SubjectCode, SubjectDetail> = {
         title: 'End-Semester Examination Format',
         topics: ['Question Paper Patterns', 'Grading Scales', 'Exam Protocol'],
       },
+      {
+        unit: 6,
+        title: 'Previous Years & Model Question Papers',
+        topics: ['End-Semester Examination Papers', 'Mid-Term Assessment Papers', 'Model Question Sets', 'Important Repeat Problems'],
+      },
     ],
   },
 };
@@ -287,3 +322,10 @@ export const STATUS_CONFIG = {
     indicator: 'bg-white/80',
   },
 } as const;
+
+export function formatUnitLabel(unit: number, title?: string): string {
+  if (unit === 6 || (title && /question[\s_-]?paper|qp/i.test(title))) {
+    return 'Question Papers';
+  }
+  return `Unit ${unit}`;
+}

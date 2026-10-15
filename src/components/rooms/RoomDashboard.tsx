@@ -8,7 +8,7 @@ import {
   UserPresence,
 } from '@/types/syllabi';
 import { DocumentStatus, SubjectCode } from '@/types/database';
-import { STATUS_CONFIG, SUBJECT_METADATA } from '@/lib/utils';
+import { STATUS_CONFIG, SUBJECT_METADATA, formatUnitLabel } from '@/lib/utils';
 import { ThemeToggle } from '@/components/theme/ThemeProvider';
 import { extractPdfPageCountFromBuffer } from '@/lib/pdfStorage';
 import { NoticeBoard } from '@/components/notice/NoticeBoardModal';
@@ -196,8 +196,13 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
         return false;
       }
     }
-    if (selectedUnitFilter !== 'ALL' && doc.unit !== selectedUnitFilter) {
-      return false;
+    if (selectedUnitFilter !== 'ALL') {
+      const isQpDoc = doc.unit === 6 || (doc.title && /question[\s_-]?paper|qp/i.test(doc.title));
+      if (selectedUnitFilter === 6) {
+        if (!isQpDoc) return false;
+      } else {
+        if (doc.unit !== selectedUnitFilter || isQpDoc) return false;
+      }
     }
     if (selectedStatusFilter !== 'ALL') {
       const docStatus = doc.userProgress?.status || 'UNREAD';
@@ -446,6 +451,16 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                   Unit {u}
                 </button>
               ))}
+              <button
+                onClick={() => setSelectedUnitFilter(6)}
+                className={`px-3 py-1 rounded-xl transition-all whitespace-nowrap ${
+                  selectedUnitFilter === 6
+                    ? 'bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white font-semibold'
+                    : 'text-white/50 dark:text-white/50 light:text-zinc-600 hover:text-white'
+                }`}
+              >
+                Question Papers
+              </button>
             </div>
 
             <div className="flex items-center bg-surface dark:bg-surface light:bg-zinc-100 border border-white/10 dark:border-white/10 light:border-zinc-300 rounded-2xl p-1 text-xs">
@@ -511,7 +526,7 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                           {displaySubj}
                         </span>
                         <span className="text-[11px] font-mono text-white/60 dark:text-white/60 light:text-zinc-600">
-                          Unit {doc.unit}
+                          {formatUnitLabel(doc.unit, doc.title)}
                         </span>
                       </div>
 
@@ -682,7 +697,11 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Java_Unit_1_Syllabus.pdf"
+                    placeholder={
+                      uploadUnit === 6
+                        ? `e.g. ${uploadSubject}_Mid_or_EndSem_Question_Paper.pdf`
+                        : "e.g. Java_Unit_1_Syllabus.pdf"
+                    }
                     value={uploadTitle}
                     onChange={(e) => setUploadTitle(e.target.value)}
                     className="w-full bg-pitch dark:bg-pitch light:bg-zinc-50 border border-white/15 dark:border-white/15 light:border-zinc-300 rounded-xl px-3 py-2 text-xs text-white dark:text-white light:text-zinc-900 placeholder-white/30 focus:outline-none focus:border-white"
@@ -711,12 +730,12 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                 </div>
               </div>
 
-              {/* Unit Selector (1 to 5) */}
+              {/* Unit Selector (1 to 5 + Question Papers) */}
               <div>
                 <label className="block text-xs font-medium text-white/70 dark:text-white/70 light:text-zinc-600 mb-1.5">
                   Curriculum Unit
                 </label>
-                <div className="grid grid-cols-5 gap-2">
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                   {[1, 2, 3, 4, 5].map((u) => {
                     const isSelected = uploadUnit === u;
                     return (
@@ -734,17 +753,32 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                       </button>
                     );
                   })}
+                  <button
+                    type="button"
+                    onClick={() => setUploadUnit(6)}
+                    className={`py-2 px-1 rounded-xl text-xs font-mono font-bold transition-all border whitespace-nowrap ${
+                      uploadUnit === 6
+                        ? 'bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white border-white dark:border-white light:border-black shadow-glow'
+                        : 'bg-pitch/60 dark:bg-pitch/60 light:bg-zinc-100 border-white/15 dark:border-white/15 light:border-zinc-300 text-white/70 dark:text-white/70 light:text-zinc-700 hover:border-white/30'
+                    }`}
+                  >
+                    Question Papers
+                  </button>
                 </div>
               </div>
 
               {/* Syllabus Topic (Optional) */}
               <div>
                 <label className="block text-xs font-medium text-white/70 dark:text-white/70 light:text-zinc-600 mb-1">
-                  Syllabus Topic / Examination Target (Optional)
+                  {uploadUnit === 6 ? 'Examination / Paper Description (Optional)' : 'Syllabus Topic / Examination Target (Optional)'}
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Heuristic Search & Adversarial Algorithms"
+                  placeholder={
+                    uploadUnit === 6
+                      ? "e.g. End-Semester Examination & Model Question Sets"
+                      : "e.g. Heuristic Search & Adversarial Algorithms"
+                  }
                   value={uploadTopic}
                   onChange={(e) => setUploadTopic(e.target.value)}
                   className="w-full bg-pitch dark:bg-pitch light:bg-zinc-50 border border-white/15 dark:border-white/15 light:border-zinc-300 rounded-xl px-3 py-2 text-xs text-white dark:text-white light:text-zinc-900 placeholder-white/30 focus:outline-none focus:border-white"
@@ -767,7 +801,13 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                   className="px-6 py-2.5 bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white text-xs font-bold rounded-xl hover:bg-white/90 active:scale-95 transition-all shadow-glow flex items-center gap-2 disabled:opacity-40"
                 >
                   <Plus className={`w-4 h-4 ${isSubmitting ? 'animate-spin' : ''}`} />
-                  <span>{isSubmitting ? 'Uploading to Room...' : 'Upload Syllabus to Room'}</span>
+                  <span>
+                    {isSubmitting
+                      ? 'Uploading to Room...'
+                      : uploadUnit === 6
+                      ? 'Upload Question Paper to Room'
+                      : 'Upload Syllabus to Room'}
+                  </span>
                 </button>
               </div>
             </form>
