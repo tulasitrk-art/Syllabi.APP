@@ -46,6 +46,8 @@ import {
   RotateCcw,
   Download,
   FileEdit,
+  Undo2,
+  Redo2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -103,6 +105,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     doc.userProgress?.bookmarks || []
   );
   const [pageGeometries, setPageGeometries] = useState<Record<number, PageAnnotationGeometry>>({});
+  const [undoStack, setUndoStack] = useState<Record<number, PageAnnotationGeometry[]>>({});
+  const [redoStack, setRedoStack] = useState<Record<number, PageAnnotationGeometry[]>>({});
   const [bookmarkInputOpen, setBookmarkInputOpen] = useState<boolean>(false);
   const [bookmarkTitle, setBookmarkTitle] = useState<string>('');
 
@@ -435,12 +439,115 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     onRemoveBookmark?.(pageNumber);
   };
 
-  const handleSaveGeometry = (geometry: PageAnnotationGeometry) => {
+  const handleSaveGeometry = useCallback((geometry: PageAnnotationGeometry) => {
+    setPageGeometries((prev) => {
+      const prevGeom = prev[currentPage] || { items: [], version: 1 };
+      setUndoStack((uPrev) => {
+        const currentStack = uPrev[currentPage] || [];
+        return {
+          ...uPrev,
+          [currentPage]: [...currentStack.slice(-49), prevGeom],
+        };
+      });
+      setRedoStack((rPrev) => ({
+        ...rPrev,
+        [currentPage]: [],
+      }));
+      return {
+        ...prev,
+        [currentPage]: geometry,
+      };
+    });
+  }, [currentPage]);
+
+  const handleUndo = useCallback(() => {
+    const currentStack = undoStack[currentPage] || [];
+    if (currentStack.length === 0) return;
+
+    const previousGeom = currentStack[currentStack.length - 1];
+    const newUndoStack = currentStack.slice(0, -1);
+    const currentGeom = pageGeometries[currentPage] || { items: [], version: 1 };
+
+    setRedoStack((rPrev) => {
+      const rStack = rPrev[currentPage] || [];
+      return {
+        ...rPrev,
+        [currentPage]: [...rStack.slice(-49), currentGeom],
+      };
+    });
+
+    setUndoStack((uPrev) => ({
+      ...uPrev,
+      [currentPage]: newUndoStack,
+    }));
+
     setPageGeometries((prev) => ({
       ...prev,
-      [currentPage]: geometry,
+      [currentPage]: previousGeom,
     }));
-  };
+  }, [currentPage, undoStack, pageGeometries]);
+
+  const handleRedo = useCallback(() => {
+    const currentStack = redoStack[currentPage] || [];
+    if (currentStack.length === 0) return;
+
+    const nextGeom = currentStack[currentStack.length - 1];
+    const newRedoStack = currentStack.slice(0, -1);
+    const currentGeom = pageGeometries[currentPage] || { items: [], version: 1 };
+
+    setUndoStack((uPrev) => {
+      const uStack = uPrev[currentPage] || [];
+      return {
+        ...uPrev,
+        [currentPage]: [...uStack.slice(-49), currentGeom],
+      };
+    });
+
+    setRedoStack((rPrev) => ({
+      ...rPrev,
+      [currentPage]: newRedoStack,
+    }));
+
+    setPageGeometries((prev) => ({
+      ...prev,
+      [currentPage]: nextGeom,
+    }));
+  }, [currentPage, redoStack, pageGeometries]);
+
+  // Global Keyboard shortcuts for Undo (Ctrl+Z) & Redo (Ctrl+Y / Ctrl+Shift+Z)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z' || e.key === 'Z') {
+          e.preventDefault();
+          if (e.shiftKey) {
+            handleRedo();
+          } else {
+            handleUndo();
+          }
+        } else if (e.key === 'y' || e.key === 'Y') {
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
+  const canUndo = (undoStack[currentPage]?.length || 0) > 0;
+  const canRedo = (redoStack[currentPage]?.length || 0) > 0;
 
   const currentBookmark = bookmarks.find((b) => b.pageNumber === currentPage);
 
@@ -847,6 +954,41 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             >
               <FileEdit className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Rough Page</span>
+            </button>
+
+            {/* Divider */}
+            <div className="h-4 w-px bg-white/20 dark:bg-white/20 light:border-zinc-300 mx-1" />
+
+            {/* Undo Button */}
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={!canUndo}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                canUndo
+                  ? 'text-white/80 dark:text-white/80 light:text-zinc-700 hover:text-white hover:bg-white/10 dark:hover:bg-white/10 light:hover:bg-zinc-200 active:scale-95'
+                  : 'text-white/20 dark:text-white/20 light:text-zinc-300 cursor-not-allowed'
+              }`}
+              title="Undo annotation (Ctrl+Z)"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Undo</span>
+            </button>
+
+            {/* Redo Button */}
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={!canRedo}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                canRedo
+                  ? 'text-white/80 dark:text-white/80 light:text-zinc-700 hover:text-white hover:bg-white/10 dark:hover:bg-white/10 light:hover:bg-zinc-200 active:scale-95'
+                  : 'text-white/20 dark:text-white/20 light:text-zinc-300 cursor-not-allowed'
+              }`}
+              title="Redo annotation (Ctrl+Y / Ctrl+Shift+Z)"
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Redo</span>
             </button>
           </div>
 

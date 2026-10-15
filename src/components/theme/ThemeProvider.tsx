@@ -72,13 +72,17 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
     <button
       onClick={toggleTheme}
       type="button"
-      className={`p-2 rounded-2xl border border-white/15 dark:border-white/15 light:border-black/15 bg-surface dark:bg-surface text-white dark:text-white dark:hover:bg-interactive transition-all duration-200 flex items-center justify-center shadow-sm ${className}`}
-      title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+      className={`p-2 rounded-2xl border transition-all duration-200 flex items-center justify-center shadow-sm active:scale-95 ${
+        theme === 'dark'
+          ? 'border-white/15 bg-surface text-white hover:bg-interactive hover:border-orange-500/40'
+          : 'border-orange-400/40 bg-orange-100/90 text-orange-900 hover:bg-orange-200 hover:border-orange-500'
+      } ${className}`}
+      title={theme === 'dark' ? 'Switch to Orange & White Theme' : 'Switch to Dark Mode'}
     >
       {theme === 'dark' ? (
-        <Sun className="w-4 h-4 text-white hover:text-yellow-300 transition-colors" />
+        <Sun className="w-4 h-4 text-orange-400 hover:text-orange-300 transition-colors" />
       ) : (
-        <Moon className="w-4 h-4 text-black hover:text-blue-600 transition-colors" />
+        <Moon className="w-4 h-4 text-orange-800 hover:text-orange-950 transition-colors" />
       )}
     </button>
   );

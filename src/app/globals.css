@@ -13,13 +13,15 @@
 }
 
 html.light {
-  --color-pitch: #fafafa;
+  --color-pitch: #ffffff;
   --color-surface: #ffffff;
-  --color-surface-elevated: #f4f4f5;
-  --color-interactive: #e4e4e7;
-  --color-interactive-hover: #d4d4d8;
-  --color-border-subtle: rgba(0, 0, 0, 0.08);
-  --color-border-strong: rgba(0, 0, 0, 0.15);
+  --color-surface-elevated: #fff7ed;
+  --color-interactive: #ffedd5;
+  --color-interactive-hover: #fed7aa;
+  --color-border-subtle: rgba(234, 88, 12, 0.16);
+  --color-border-strong: rgba(194, 65, 12, 0.35);
+  --color-brand-orange: #ea580c;
+  --color-dark-orange: #c2410c;
 }
 
 * {
@@ -34,12 +36,15 @@ body {
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   overflow-x: hidden;
   user-select: none;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 html.light body {
-  background-color: #f7f7f8;
-  color: #09090b;
+  background-color: #fffaf5;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(251, 146, 60, 0.09) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(234, 88, 12, 0.06) 0px, transparent 50%);
+  color: #1c1917;
 }
 
 /* iOS frosted glass squircle container */
@@ -52,9 +57,14 @@ html.light body {
 }
 
 html.light .ios-glass-card {
-  background: rgba(255, 255, 255, 0.85);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(234, 88, 12, 0.16);
+  box-shadow: 0 4px 24px -2px rgba(234, 88, 12, 0.08), 0 0 0 1px rgba(234, 88, 12, 0.08);
+}
+
+html.light .ios-glass-card:hover {
+  border-color: rgba(234, 88, 12, 0.4);
+  box-shadow: 0 10px 32px -4px rgba(234, 88, 12, 0.14), 0 0 0 1px rgba(234, 88, 12, 0.25);
 }
 
 .ios-glass-panel {
@@ -66,12 +76,12 @@ html.light .ios-glass-card {
 }
 
 html.light .ios-glass-panel {
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid rgba(194, 65, 12, 0.24);
+  box-shadow: 0 12px 36px -6px rgba(234, 88, 12, 0.12), 0 0 0 1px rgba(234, 88, 12, 0.1);
 }
 
-/* Minimalist monochrome scrollbar */
+/* Minimalist monochrome scrollbar & Orange sunset scrollbar */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -87,7 +97,8 @@ html.light .ios-glass-panel {
 }
 
 html.light ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(234, 88, 12, 0.35);
+  border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -95,7 +106,76 @@ html.light ::-webkit-scrollbar-thumb {
 }
 
 html.light ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(194, 65, 12, 0.65);
+}
+
+/* Premium White + Dark Orange Theme Layout Styling */
+html.light {
+  accent-color: #ea580c;
+}
+
+html.light header {
+  background: rgba(255, 255, 255, 0.9) !important;
+  border-bottom: 1px solid rgba(234, 88, 12, 0.22) !important;
+  box-shadow: 0 4px 20px -2px rgba(234, 88, 12, 0.05);
+}
+
+html.light footer {
+  background: rgba(255, 255, 255, 0.94) !important;
+  border-top: 1px solid rgba(234, 88, 12, 0.22) !important;
+  box-shadow: 0 -4px 20px -2px rgba(234, 88, 12, 0.05);
+}
+
+html.light .light\:border-zinc-200,
+html.light .light\:border-zinc-300 {
+  border-color: rgba(234, 88, 12, 0.2) !important;
+}
+
+html.light .light\:bg-zinc-100 {
+  background-color: #fff7ed !important;
+}
+
+html.light .light\:bg-zinc-200 {
+  background-color: #ffedd5 !important;
+}
+
+html.light .light\:bg-\[\#f7f7f8\],
+html.light .light\:bg-\[\#f0f0f2\] {
+  background-color: #fffaf5 !important;
+}
+
+html.light .light\:text-zinc-900 {
+  color: #1c1917 !important;
+}
+
+html.light .light\:text-zinc-700,
+html.light .light\:text-zinc-600 {
+  color: #7c2d12 !important;
+}
+
+html.light .light\:text-zinc-500,
+html.light .light\:text-zinc-400 {
+  color: #9a3412 !important;
+}
+
+/* Primary Dark Orange buttons & active pills with smooth premium look */
+html.light .light\:bg-black,
+html.light button.light\:bg-black {
+  background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid #c2410c !important;
+  box-shadow: 0 4px 14px 0 rgba(234, 88, 12, 0.28) !important;
+}
+
+html.light .light\:bg-black:hover,
+html.light button.light\:bg-black:hover {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%) !important;
+  box-shadow: 0 6px 18px 0 rgba(234, 88, 12, 0.35) !important;
+}
+
+/* Subtle orange glow for highlight cards in light theme */
+html.light .shadow-glow {
+  box-shadow: 0 0 25px -4px rgba(234, 88, 12, 0.22) !important;
 }
 
 /* Canvas annotation overlay pointers */

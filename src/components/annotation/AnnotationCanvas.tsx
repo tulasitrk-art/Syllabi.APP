@@ -68,9 +68,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
   // Sync external geometry updates
   useEffect(() => {
-    if (initialGeometry?.items) {
-      setItems(initialGeometry.items);
-    }
+    setItems(initialGeometry?.items || []);
   }, [initialGeometry]);
 
   // Convert client pointer coordinate to normalized float [0.0, 1.0]

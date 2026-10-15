@@ -12,6 +12,7 @@ import {
   Eraser,
   Type,
   RotateCcw,
+  RotateCw,
   Sparkles,
 } from 'lucide-react';
 import { ConfirmDeleteModal } from '@/components/ui/ConfirmDeleteModal';
@@ -51,6 +52,7 @@ export const RoughPageModal: React.FC<RoughPageProps> = ({
   const [penColor, setPenColor] = useState<string>(activeColor || '#000000');
   const [textNotes, setTextNotes] = useState<string>('');
   const [strokes, setStrokes] = useState<Stroke[]>([]);
+  const [redoStrokes, setRedoStrokes] = useState<Stroke[]>([]);
   const currentStrokeRef = useRef<Stroke | null>(null);
 
   // Delete Confirmation
@@ -222,14 +224,22 @@ export const RoughPageModal: React.FC<RoughPageProps> = ({
       const finalized = currentStrokeRef.current;
       currentStrokeRef.current = null;
       setStrokes((prev) => [...prev, finalized]);
+      setRedoStrokes([]);
     }
   };
 
   const handleUndo = () => {
-    setStrokes((prev) => {
-      const next = prev.slice(0, -1);
-      return next;
-    });
+    if (strokes.length === 0) return;
+    const last = strokes[strokes.length - 1];
+    setRedoStrokes((prev) => [...prev, last]);
+    setStrokes((prev) => prev.slice(0, -1));
+  };
+
+  const handleRedo = () => {
+    if (redoStrokes.length === 0) return;
+    const last = redoStrokes[redoStrokes.length - 1];
+    setRedoStrokes((prev) => prev.slice(0, -1));
+    setStrokes((prev) => [...prev, last]);
   };
 
   const handleExecuteDelete = () => {
@@ -402,17 +412,29 @@ export const RoughPageModal: React.FC<RoughPageProps> = ({
             </div>
           )}
 
-          {/* Undo */}
-          <button
-            type="button"
-            onClick={handleUndo}
-            disabled={strokes.length === 0}
-            className="flex items-center gap-1 px-2 py-1 text-zinc-600 hover:text-black disabled:opacity-30 disabled:hover:text-zinc-600 font-medium"
-            title="Undo last stroke"
-          >
-            <RotateCcw className="w-3 h-3" />
-            <span className="text-[11px]">Undo</span>
-          </button>
+          {/* Undo & Redo */}
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={strokes.length === 0}
+              className="flex items-center gap-1 px-2 py-1 text-zinc-600 hover:text-black disabled:opacity-30 disabled:hover:text-zinc-600 font-medium"
+              title="Undo last stroke"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span className="text-[11px]">Undo</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={redoStrokes.length === 0}
+              className="flex items-center gap-1 px-2 py-1 text-zinc-600 hover:text-black disabled:opacity-30 disabled:hover:text-zinc-600 font-medium"
+              title="Redo stroke"
+            >
+              <RotateCw className="w-3 h-3" />
+              <span className="text-[11px]">Redo</span>
+            </button>
+          </div>
         </div>
 
         {/* WORKSPACE AREA (WHITE PAGE NOTEBOOK CANVAS + TYPING TEXTAREA) */}
