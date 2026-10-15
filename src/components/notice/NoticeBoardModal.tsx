@@ -17,6 +17,7 @@ import {
   Check,
 } from 'lucide-react';
 import { formatTimeAgo } from '@/lib/utils';
+import { ConfirmDeleteModal } from '@/components/ui/ConfirmDeleteModal';
 
 export interface NoticeItem {
   id: string;
@@ -45,6 +46,7 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId }) => {
   const [newAuthor, setNewAuthor] = useState('');
   const [newCategory, setNewCategory] = useState<'General' | 'Exam Alert' | 'Urgent' | 'Study Tip'>('General');
   const [isPinned, setIsPinned] = useState(false);
+  const [noticeToDelete, setNoticeToDelete] = useState<{ id: string; title: string } | null>(null);
 
   // Load from shared server API (/api/notices) with real-time polling
   const fetchNotices = async () => {
@@ -501,7 +503,7 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId }) => {
                             </span>
                             <button
                               type="button"
-                              onClick={() => handleDelete(item.id)}
+                              onClick={() => setNoticeToDelete({ id: item.id, title: item.title })}
                               className="p-1 text-white/20 hover:text-red-400 rounded transition-colors"
                               title="Delete Notice"
                             >
@@ -552,6 +554,23 @@ export const NoticeBoard: React.FC<NoticeBoardProps> = ({ roomId }) => {
           </div>
         </div>
       )}
+
+      {/* CONFIRM PERMANENT DELETE NOTICE MODAL */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(noticeToDelete)}
+        title="Delete Notice Permanently?"
+        message="Are you sure? This will be permanently deleted from this app."
+        itemTitle={noticeToDelete?.title}
+        confirmText="Yes, Delete"
+        cancelText="No, Keep"
+        onConfirm={() => {
+          if (noticeToDelete) {
+            handleDelete(noticeToDelete.id);
+          }
+          setNoticeToDelete(null);
+        }}
+        onCancel={() => setNoticeToDelete(null)}
+      />
     </>
   );
 };

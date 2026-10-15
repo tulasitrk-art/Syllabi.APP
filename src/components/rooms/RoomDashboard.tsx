@@ -12,6 +12,7 @@ import { STATUS_CONFIG, SUBJECT_METADATA } from '@/lib/utils';
 import { ThemeToggle } from '@/components/theme/ThemeProvider';
 import { extractPdfPageCountFromBuffer } from '@/lib/pdfStorage';
 import { NoticeBoard } from '@/components/notice/NoticeBoardModal';
+import { ConfirmDeleteModal } from '@/components/ui/ConfirmDeleteModal';
 import {
   BookOpen,
   Plus,
@@ -77,6 +78,7 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
   // Modals state
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
   const [isRoomModalOpen, setIsRoomModalOpen] = useState<boolean>(false);
+  const [docToDelete, setDocToDelete] = useState<{ id: string; title: string } | null>(null);
 
   // Upload Form States
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -578,7 +580,7 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                       {onDeleteDocument && (
                         <button
                           type="button"
-                          onClick={() => onDeleteDocument(doc.id)}
+                          onClick={() => setDocToDelete({ id: doc.id, title: doc.title })}
                           className="p-1.5 text-white/30 dark:text-white/30 light:text-zinc-400 hover:text-white dark:hover:text-white light:hover:text-black rounded-lg transition-colors"
                           title="Delete syllabus document"
                         >
@@ -907,6 +909,23 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
       <footer className="w-full border-t border-white/10 dark:border-white/10 light:border-zinc-200 py-6 px-6 text-center text-xs text-white/30 dark:text-white/30 light:text-zinc-500 font-mono">
         SYLLABI • COLLABORATIVE MONOCHROME ARCHITECTURE
       </footer>
+
+      {/* UNIVERSAL CONFIRM PERMANENT DELETE MODAL */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(docToDelete)}
+        title="Delete Document Permanently?"
+        message="Are you sure? This will be permanently deleted from this app."
+        itemTitle={docToDelete?.title}
+        confirmText="Yes, Delete"
+        cancelText="No, Keep"
+        onConfirm={() => {
+          if (docToDelete && onDeleteDocument) {
+            onDeleteDocument(docToDelete.id);
+          }
+          setDocToDelete(null);
+        }}
+        onCancel={() => setDocToDelete(null)}
+      />
     </div>
   );
 };

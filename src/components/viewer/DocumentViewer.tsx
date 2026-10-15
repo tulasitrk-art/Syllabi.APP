@@ -45,10 +45,13 @@ import {
   Eye,
   RotateCcw,
   Download,
+  FileEdit,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getPdfBlob } from '@/lib/pdfStorage';
+import { ConfirmDeleteModal } from '@/components/ui/ConfirmDeleteModal';
+import { RoughPageModal } from '@/components/viewer/RoughPageModal';
 
 interface DocumentViewerProps {
   document: DocumentWithProgress;
@@ -61,6 +64,7 @@ interface DocumentViewerProps {
 
 const PALETTE_COLORS = [
   { name: 'White', value: '#ffffff' },
+  { name: 'Black', value: '#000000' },
   { name: 'Yellow', value: '#fde047' },
   { name: 'Cyan', value: '#38bdf8' },
   { name: 'Emerald', value: '#4ade80' },
@@ -115,6 +119,11 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const [inputAuthorName, setInputAuthorName] = useState<string>('');
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+
+  // Rough Page and Delete Confirmation states
+  const [isRoughPageOpen, setIsRoughPageOpen] = useState<boolean>(false);
+  const [showConfirmDeleteDoc, setShowConfirmDeleteDoc] = useState<boolean>(false);
+  const [bookmarkToDelete, setBookmarkToDelete] = useState<number | null>(null);
 
   const router = useRouter();
 
@@ -542,11 +551,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           {/* PERMANENT DELETE BUTTON */}
           {onDeleteDocument && (
             <button
-              onClick={() => {
-                if (window.confirm(`Permanently delete "${doc.title}"? This cannot be undone.`)) {
-                  onDeleteDocument();
-                }
-              }}
+              type="button"
+              onClick={() => setShowConfirmDeleteDoc(true)}
               className="p-1.5 text-white/40 hover:text-red-400 rounded-xl hover:bg-white/5 border border-transparent hover:border-red-500/30 transition-colors"
               title="Permanently delete document"
             >
@@ -620,7 +626,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleRemoveBookmark(currentPage);
+                    setBookmarkToDelete(currentPage);
                   }}
                   className="p-1 rounded-full hover:bg-black/25 active:scale-90 transition-all text-black"
                   title="Remove bookmark from this page"
@@ -723,7 +729,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        handleRemoveBookmark(currentPage);
+                        setBookmarkToDelete(currentPage);
                         setBookmarkInputOpen(false);
                       }}
                       className="px-2 py-1 text-xs text-red-400 hover:text-red-300 font-medium transition-colors"
@@ -825,6 +831,20 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
               <MessageSquare className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Note</span>
             </button>
+
+            {/* Rough Page Tool Button (White Scratchpad Aside) */}
+            <button
+              onClick={() => setIsRoughPageOpen((prev) => !prev)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                isRoughPageOpen
+                  ? 'bg-white dark:bg-white light:bg-black text-black dark:text-black light:text-white font-semibold shadow-md ring-1 ring-white/50'
+                  : 'text-white/60 dark:text-white/60 light:text-zinc-600 hover:text-white'
+              }`}
+              title="Rough Page / Scratchpad (Open white scribble page aside with move, delete, minimise and maximise features)"
+            >
+              <FileEdit className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Rough Page</span>
+            </button>
           </div>
 
           {/* COLOR PICKER POPUP */}
@@ -850,12 +870,16 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                       setActiveColor(col.value);
                       setShowColorPicker(false);
                     }}
-                    className="w-6 h-6 rounded-full border border-white/20 flex items-center justify-center transition-transform hover:scale-110"
+                    className={`w-6 h-6 rounded-full flex items-center justify-center transition-transform hover:scale-110 ${
+                      col.value === '#000000'
+                        ? 'border-2 border-white/60 shadow-sm'
+                        : 'border border-white/20'
+                    }`}
                     style={{ backgroundColor: col.value }}
                     title={col.name}
                   >
                     {activeColor === col.value && (
-                      <Check className="w-3 h-3 text-black stroke-[3]" />
+                      <Check className={`w-3 h-3 stroke-[3] ${col.value === '#000000' ? 'text-white' : 'text-black'}`} />
                     )}
                   </button>
                 ))}
@@ -1258,6 +1282,51 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           <span>{saveSuccessMessage}</span>
         </div>
       )}
+
+      {/* 7. ROUGH PAGE SCRATCHPAD / WHITE PAPER ASIDE */}
+      <RoughPageModal
+        isOpen={isRoughPageOpen}
+        onClose={() => setIsRoughPageOpen(false)}
+        activeColor={activeColor}
+      />
+
+      {/* 8. CONFIRM PERMANENT DELETE DOCUMENT MODAL */}
+      <ConfirmDeleteModal
+        isOpen={showConfirmDeleteDoc}
+        title="Delete Document Permanently?"
+        message="Are you sure? This will be permanently deleted from this app."
+        itemTitle={doc.title}
+        confirmText="Yes, Delete"
+        cancelText="No, Keep"
+        onConfirm={() => {
+          setShowConfirmDeleteDoc(false);
+          onDeleteDocument?.();
+        }}
+        onCancel={() => setShowConfirmDeleteDoc(false)}
+      />
+
+      {/* 9. CONFIRM PERMANENT DELETE BOOKMARK MODAL */}
+      <ConfirmDeleteModal
+        isOpen={bookmarkToDelete !== null}
+        title="Delete Bookmark Permanently?"
+        message="Are you sure? This will be permanently deleted from this app."
+        itemTitle={
+          bookmarkToDelete !== null
+            ? `Bookmark on Page ${bookmarkToDelete}: "${
+                bookmarks.find((b) => b.pageNumber === bookmarkToDelete)?.title || 'Bookmark'
+              }"`
+            : undefined
+        }
+        confirmText="Yes, Delete"
+        cancelText="No, Keep"
+        onConfirm={() => {
+          if (bookmarkToDelete !== null) {
+            handleRemoveBookmark(bookmarkToDelete);
+          }
+          setBookmarkToDelete(null);
+        }}
+        onCancel={() => setBookmarkToDelete(null)}
+      />
 
     </div>
   );
