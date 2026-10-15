@@ -113,6 +113,7 @@ export function useSupabaseRoom(roomId: string) {
             srvDocs.forEach((srvDoc: any) => {
               mergedMap.set(srvDoc.id, {
                 ...srvDoc,
+                subject: srvDoc.subject === 'DEVC' ? 'DMGT' : srvDoc.subject,
                 userProgress: srvDoc.userProgress || { status: 'UNREAD', bookmarks: [] },
                 savedContributors: srvDoc.savedContributors || [],
                 savedDrafts: srvDoc.savedDrafts || [],
@@ -127,7 +128,10 @@ export function useSupabaseRoom(roomId: string) {
             prev.forEach((prevDoc) => {
               if (!deletedDocIdsRef.current.has(prevDoc.id)) {
                 if (!mergedMap.has(prevDoc.id)) {
-                  mergedMap.set(prevDoc.id, prevDoc);
+                  mergedMap.set(prevDoc.id, {
+                    ...prevDoc,
+                    subject: prevDoc.subject === 'DEVC' ? 'DMGT' : prevDoc.subject,
+                  });
                 }
               }
             });
@@ -136,7 +140,10 @@ export function useSupabaseRoom(roomId: string) {
             recentUploadsRef.current.forEach((val, docId) => {
               if (!deletedDocIdsRef.current.has(docId)) {
                 if (!mergedMap.has(docId)) {
-                  mergedMap.set(docId, val.doc);
+                  mergedMap.set(docId, {
+                    ...val.doc,
+                    subject: val.doc.subject === 'DEVC' ? 'DMGT' : val.doc.subject,
+                  });
                 }
               }
             });
@@ -216,7 +223,12 @@ export function useSupabaseRoom(roomId: string) {
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            const filtered = parsed.filter((d: any) => !deletedDocIdsRef.current.has(d.id));
+            const filtered = parsed
+              .filter((d: any) => !deletedDocIdsRef.current.has(d.id))
+              .map((d: any) => ({
+                ...d,
+                subject: d.subject === 'DEVC' ? 'DMGT' : d.subject,
+              }));
             setDocuments(filtered);
           }
         }
@@ -528,6 +540,7 @@ export function useSupabaseRoom(roomId: string) {
       let createdDoc: DocumentWithProgress | null = null;
 
       // 1. Resolve or generate valid PDF buffer
+      const resolvedSubject = (payload.subject === 'DEVC' ? 'DMGT' : payload.subject) as SubjectCode;
       let bufferToPersist: ArrayBuffer | null = payload.buffer ? payload.buffer.slice(0) : null;
       if (!bufferToPersist && payload.file) {
         try {
@@ -539,7 +552,7 @@ export function useSupabaseRoom(roomId: string) {
       if (!bufferToPersist || bufferToPersist.byteLength === 0) {
         bufferToPersist = generateSyllabusPdfBuffer({
           title: payload.title,
-          subject: payload.subject,
+          subject: resolvedSubject,
           unit: payload.unit,
           syllabusTopic: payload.syllabusTopic,
           totalPages: payload.totalPages || 1,
@@ -560,7 +573,7 @@ export function useSupabaseRoom(roomId: string) {
           formData.append('file', pdfBlob, payload.title.endsWith('.pdf') ? payload.title : `${payload.title}.pdf`);
         }
         formData.append('title', payload.title);
-        formData.append('subject', payload.subject);
+        formData.append('subject', resolvedSubject);
         formData.append('unit', String(payload.unit));
         formData.append('syllabusTopic', payload.syllabusTopic);
         formData.append('totalPages', String(payload.totalPages || 1));
@@ -601,7 +614,7 @@ export function useSupabaseRoom(roomId: string) {
           roomId,
           uploadedBy: 'student-visitor',
           title: payload.title,
-          subject: payload.subject,
+          subject: resolvedSubject,
           unit: payload.unit,
           syllabusTopic: payload.syllabusTopic,
           fileUrl: fallbackUrl,

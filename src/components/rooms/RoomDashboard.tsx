@@ -190,8 +190,11 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
 
   // Filtered documents
   const filteredDocuments = documents.filter((doc) => {
-    if (selectedSubjectFilter !== 'ALL' && doc.subject !== selectedSubjectFilter) {
-      return false;
+    if (selectedSubjectFilter !== 'ALL') {
+      const docSubj = doc.subject === 'DEVC' ? 'DMGT' : doc.subject;
+      if (docSubj !== selectedSubjectFilter) {
+        return false;
+      }
     }
     if (selectedUnitFilter !== 'ALL' && doc.unit !== selectedUnitFilter) {
       return false;
@@ -210,7 +213,7 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
   });
 
   const totalDocs = documents.length;
-  const allSubjectCodes: SubjectCode[] = ['SYLLABUS', 'AI', 'ADS', 'DEVC', 'JAVA', 'UHV'];
+  const allSubjectCodes: SubjectCode[] = ['SYLLABUS', 'AI', 'ADS', 'DMGT', 'JAVA', 'UHV'];
 
   return (
     <div className="flex-1 w-full bg-pitch dark:bg-pitch light:bg-[#f7f7f8] text-white dark:text-white light:text-zinc-900 flex flex-col min-h-screen selection:bg-white/20">
@@ -386,7 +389,7 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
             </button>
 
             {allSubjectCodes.map((subj) => {
-              const count = documents.filter((d) => d.subject === subj).length;
+              const count = documents.filter((d) => (d.subject === 'DEVC' ? 'DMGT' : d.subject) === subj).length;
               const isSelected = selectedSubjectFilter === subj;
               const meta = SUBJECT_METADATA[subj];
               return (
@@ -492,7 +495,8 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
               const currentStatus = doc.userProgress?.status || 'UNREAD';
               const statusCfg = STATUS_CONFIG[currentStatus];
               const bookmarksCount = doc.userProgress?.bookmarks?.length || 0;
-              const subjMeta = SUBJECT_METADATA[doc.subject];
+              const displaySubj = doc.subject === 'DEVC' ? 'DMGT' : doc.subject;
+              const subjMeta = SUBJECT_METADATA[displaySubj as SubjectCode] || SUBJECT_METADATA[doc.subject];
 
               return (
                 <div
@@ -504,7 +508,7 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-white/10 dark:bg-white/10 light:bg-zinc-200 text-white dark:text-white light:text-zinc-900 border border-white/20 dark:border-white/20 light:border-zinc-300">
-                          {doc.subject}
+                          {displaySubj}
                         </span>
                         <span className="text-[11px] font-mono text-white/60 dark:text-white/60 light:text-zinc-600">
                           Unit {doc.unit}
@@ -530,7 +534,7 @@ export const RoomDashboard: React.FC<RoomDashboardProps> = ({
 
                     {/* Subject Full Title */}
                     <div className="text-[11px] font-medium text-white/40 dark:text-white/40 light:text-zinc-500 mb-1">
-                      {subjMeta?.name || doc.subject}
+                      {subjMeta?.name || displaySubj}
                     </div>
 
                     {/* Document Title */}

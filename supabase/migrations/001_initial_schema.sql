@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS documents (
     room_id UUID NOT NULL REFERENCES study_rooms(id) ON DELETE CASCADE,
     uploaded_by UUID NOT NULL,
     title TEXT NOT NULL,
-    subject TEXT NOT NULL CHECK (subject IN ('DEVC', 'ADS', 'AI', 'UHV', 'JAVA')),
+    subject TEXT NOT NULL CHECK (subject IN ('DMGT', 'ADS', 'AI', 'UHV', 'JAVA', 'DEVC', 'SYLLABUS')),
     unit INTEGER NOT NULL CHECK (unit BETWEEN 1 AND 10),
     syllabus_topic TEXT,
     file_url TEXT NOT NULL,

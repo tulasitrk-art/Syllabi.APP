@@ -9,7 +9,7 @@ import {
   DocumentContributor,
   SavedDraft,
 } from '@/types/syllabi';
-import { DocumentStatus } from '@/types/database';
+import { DocumentStatus, SubjectCode } from '@/types/database';
 import { AnnotationCanvas } from '@/components/annotation/AnnotationCanvas';
 import { PdfViewerCanvas } from '@/components/viewer/PdfViewerCanvas';
 import { ThemeToggle } from '@/components/theme/ThemeProvider';
@@ -338,10 +338,13 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   };
 
 
-  const subjectInfo = SUBJECT_METADATA[doc.subject] || {
-    name: doc.subject,
-    description: '',
-  };
+  const displaySubject = doc.subject === 'DEVC' ? 'DMGT' : doc.subject;
+  const subjectInfo =
+    (SUBJECT_METADATA as Record<string, any>)[displaySubject] ||
+    (SUBJECT_METADATA as Record<string, any>)[doc.subject] || {
+      name: displaySubject,
+      description: '',
+    };
 
   // Auto-fit page height on initial dimension load with equality check to prevent re-render loops
   const handleDimensionsChange = useCallback((width: number, height: number) => {
@@ -477,7 +480,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white/10 dark:bg-white/10 light:bg-zinc-200 text-white dark:text-white light:text-zinc-900 border border-white/20 dark:border-white/20 light:border-zinc-300 uppercase tracking-wider font-semibold">
-                {doc.subject} • Unit {doc.unit}
+                {displaySubject} • Unit {doc.unit}
               </span>
               <h1 className="text-sm font-medium text-white dark:text-white light:text-zinc-900 tracking-tight truncate max-w-sm">
                 {doc.title}
@@ -596,7 +599,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
               currentPage={currentPage}
               zoomScale={zoomScale}
               documentTitle={doc.title}
-              subject={doc.subject}
+              subject={displaySubject}
               unit={doc.unit}
               syllabusTopic={doc.syllabusTopic}
               onDimensionsChange={handleDimensionsChange}

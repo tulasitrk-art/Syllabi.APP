@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
             roomId: d.room_id,
             uploadedBy: d.uploaded_by,
             title: d.title,
-            subject: d.subject,
+            subject: d.subject === 'DEVC' ? 'DMGT' : d.subject,
             unit: d.unit,
             syllabusTopic: d.syllabus_topic,
             fileUrl: d.file_url,
@@ -83,7 +83,10 @@ export async function GET(request: NextRequest) {
     }
 
     // 2. Return from Universal Server Store (accessible to every visitor across devices, supporting 30+ documents)
-    const allDocs = getDocsIndex();
+    const allDocs = getDocsIndex().map((d) => ({
+      ...d,
+      subject: d.subject === 'DEVC' ? 'DMGT' : d.subject,
+    }));
     const sorted = [...allDocs].sort((a, b) => {
       const ta = new Date(a.createdAt || 0).getTime();
       const tb = new Date(b.createdAt || 0).getTime();
@@ -161,6 +164,10 @@ export async function POST(request: NextRequest) {
       if (json.pdfBase64) {
         pdfBuffer = Buffer.from(json.pdfBase64, 'base64');
       }
+    }
+
+    if (subject === 'DEVC') {
+      subject = 'DMGT';
     }
 
     if (!title) {

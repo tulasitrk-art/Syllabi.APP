@@ -98,36 +98,69 @@ export const SUBJECT_METADATA: Record<SubjectCode, SubjectDetail> = {
       },
     ],
   },
-  DEVC: {
-    code: 'DEVC',
-    name: 'Development & Cloud',
-    description: 'DevOps Pipelines, Containerization, Kubernetes Pod Networking & Cloud Infra',
+  DMGT: {
+    code: 'DMGT',
+    name: 'Discrete Mathematics & Graph Theory',
+    description: 'Mathematical Logic, Set Theory, Combinatorics, Relations, Functions & Graph Theory',
     badgeClass: 'border-white/20 bg-white/5 text-white',
     sections: [
       {
         unit: 1,
-        title: 'DevOps Foundations & CI/CD Pipelines',
-        topics: ['Git Workflows', 'Continuous Integration', 'Automated Testing', 'Artifact Registry & Release Cycles'],
+        title: 'Mathematical Logic & Predicates',
+        topics: ['Propositional Logic', 'Truth Tables & Tautologies', 'Predicates & Quantifiers', 'Normal Forms (DNF/CNF)', 'Rules of Inference'],
       },
       {
         unit: 2,
-        title: 'Containerization & Docker Architecture',
-        topics: ['Docker Engine Internals', 'Dockerfile Multi-stage Builds', 'Docker Compose', 'Container Security'],
+        title: 'Set Theory, Relations & Functions',
+        topics: ['Set Operations & Identities', 'Equivalence Relations & Partitions', 'Partial Ordering & Lattices', 'Functions & Inverses', 'Pigeonhole Principle'],
       },
       {
         unit: 3,
-        title: 'Kubernetes & Pod Networking',
-        topics: ['Pods, Deployments & ReplicaSets', 'CNI Plugins (Calico/Flannel)', 'Services & Ingress Controllers', 'ConfigMaps & Secrets'],
+        title: 'Algebraic Structures & Combinatorics',
+        topics: ['Semigroups & Monoids', 'Groups & Subgroups', 'Permutations & Combinations', 'Generating Functions', 'Recurrence Relations'],
       },
       {
         unit: 4,
-        title: 'Cloud Infrastructure & Microservices',
-        topics: ['Infrastructure as Code (Terraform)', 'API Gateways', 'Service Mesh (Istio)', 'Zero-Trust Architecture'],
+        title: 'Graph Theory & Trees',
+        topics: ['Graph Representations & Isomorphisms', 'Euler & Hamiltonian Paths', 'Trees & Minimal Spanning Trees', 'Planar Graphs & Euler Formula', 'Graph Coloring & Chromatic Numbers'],
       },
       {
         unit: 5,
-        title: 'Observability & Site Reliability',
-        topics: ['Prometheus & Metrics Collection', 'Grafana Dashboards', 'Distributed Tracing (OpenTelemetry)', 'SRE Principles & SLOs'],
+        title: 'Advanced Graph Algorithms & Network Flows',
+        topics: ['Shortest Paths (Dijkstra/Floyd-Warshall)', 'Maximum Flow & Min-Cut Theorem', 'Bipartite Matching', 'Connectivity & Cut Vertices', 'Applications in Computer Science'],
+      },
+    ],
+  },
+  DEVC: {
+    code: 'DMGT',
+    name: 'Discrete Mathematics & Graph Theory',
+    description: 'Mathematical Logic, Set Theory, Combinatorics, Relations, Functions & Graph Theory',
+    badgeClass: 'border-white/20 bg-white/5 text-white',
+    sections: [
+      {
+        unit: 1,
+        title: 'Mathematical Logic & Predicates',
+        topics: ['Propositional Logic', 'Truth Tables & Tautologies', 'Predicates & Quantifiers', 'Normal Forms (DNF/CNF)', 'Rules of Inference'],
+      },
+      {
+        unit: 2,
+        title: 'Set Theory, Relations & Functions',
+        topics: ['Set Operations & Identities', 'Equivalence Relations & Partitions', 'Partial Ordering & Lattices', 'Functions & Inverses', 'Pigeonhole Principle'],
+      },
+      {
+        unit: 3,
+        title: 'Algebraic Structures & Combinatorics',
+        topics: ['Semigroups & Monoids', 'Groups & Subgroups', 'Permutations & Combinations', 'Generating Functions', 'Recurrence Relations'],
+      },
+      {
+        unit: 4,
+        title: 'Graph Theory & Trees',
+        topics: ['Graph Representations & Isomorphisms', 'Euler & Hamiltonian Paths', 'Trees & Minimal Spanning Trees', 'Planar Graphs & Euler Formula', 'Graph Coloring & Chromatic Numbers'],
+      },
+      {
+        unit: 5,
+        title: 'Advanced Graph Algorithms & Network Flows',
+        topics: ['Shortest Paths (Dijkstra/Floyd-Warshall)', 'Maximum Flow & Min-Cut Theorem', 'Bipartite Matching', 'Connectivity & Cut Vertices', 'Applications in Computer Science'],
       },
     ],
   },

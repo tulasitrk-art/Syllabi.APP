@@ -28,7 +28,7 @@ A collaborative, pure monochrome study ecosystem built for students to share, tr
 
 ### II. Syllabus Categorization
 Every document belongs to:
-- **Subject Code:** `DEVC` | `ADS` | `AI` | `UHV` | `JAVA`
+- **Subject Code:** `DMGT` | `ADS` | `AI` | `UHV` | `JAVA` | `SYLLABUS`
 - **Unit Number:** `Unit 1` to `Unit 5` (up to `10`)
 - **Syllabus Topic:** Concepts, theorems, and examination targets.
 
